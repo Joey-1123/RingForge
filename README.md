@@ -42,7 +42,7 @@ uv sync
 pip install -e .
 
 # For the desktop GUI
-uv add ringforge[gui]
+uv sync --extra gui
 ```
 
 ## Usage
