@@ -211,7 +211,10 @@ def generate(url, mode, profile, start, end, duration, force):
         )
 
         # Step 4: Export
-        trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
+        export_fmt = profile_cfg.get("codec", "mp3")
+        if export_fmt == "aac":
+            export_fmt = "mp4"
+        trimmed.export(output_path, format=export_fmt,
                        bitrate=profile_cfg.get("bitrate", "192k"))
 
         click.echo(f"Exported: {output_path}")
@@ -266,7 +269,10 @@ def generate(url, mode, profile, start, end, duration, force):
             fade_ms=profile_cfg.get("fade_ms", 200),
         )
 
-        trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
+        export_fmt = profile_cfg.get("codec", "mp3")
+        if export_fmt == "aac":
+            export_fmt = "mp4"
+        trimmed.export(output_path, format=export_fmt,
                        bitrate=profile_cfg.get("bitrate", "192k"))
         click.echo(f"Exported: {output_path}")
 
@@ -312,7 +318,10 @@ def generate(url, mode, profile, start, end, duration, force):
             normalize_db=-2.0,
             fade_ms=100,
         )
-        trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
+        export_fmt = profile_cfg.get("codec", "mp3")
+        if export_fmt == "aac":
+            export_fmt = "mp4"
+        trimmed.export(output_path, format=export_fmt,
                        bitrate=profile_cfg.get("bitrate", "192k"))
         click.echo(f"Exported notification: {output_path}")
 
@@ -390,7 +399,10 @@ def generate(url, mode, profile, start, end, duration, force):
             fade_ms=profile_cfg.get("fade_ms", 200),
         )
 
-        trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
+        export_fmt = profile_cfg.get("codec", "mp3")
+        if export_fmt == "aac":
+            export_fmt = "mp4"
+        trimmed.export(output_path, format=export_fmt,
                        bitrate=profile_cfg.get("bitrate", "192k"))
         click.echo(f"Exported: {output_path}")
 
