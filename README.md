@@ -4,27 +4,28 @@
   <img src="docs/logo.png" alt="RingForge Logo" width="300">
 </p>
 
-Find the best moment in any YouTube video and export it as a ringtone, notification sound, alarm, or TikTok clip.
+Find the best moment in any audio and export it as a ringtone, notification sound, alarm, or TikTok clip.
 
-Instead of asking you to manually trim a song, RingForge analyzes the video and automatically detects the best 20-40 second segment using YouTube's "Most Replayed" heatmap and a multi-signal AI scoring engine.
+RingForge analyzes user-supplied audio using a multi-signal scoring engine (energy, repetition, beat, novelty) to automatically detect the best 20-40 second segment. It also includes an **optional YouTube import plugin** that can download audio and scrape "Most Replayed" heatmap data.
 
 ```
-Paste URL -> Download -> Analyze -> Pick top 5 -> Export
+Audio Input -> Analyze -> Pick top 5 -> Export
 ```
 
 ---
 
 ## Features
 
+- **Works on any audio** -- local files, YouTube URLs, or any audio that FFmpeg can read
 - **Top 5 ranked candidates** -- shows you the best segments with labels explaining why each was chosen
-- **YouTube Heatmap mode** -- uses public Most Replayed data for perfect accuracy
-- **AI fallback** -- when heatmap is unavailable, uses energy + repetition + beat + novelty scoring via librosa
+- **AI scoring engine** -- energy, repetition, beat, and novelty analysis via librosa
+- **Optional YouTube import** -- downloads audio and scrapes "Most Replayed" heatmap when available
 - **Smart start/end** -- snaps cuts to the nearest beat onset for clean, musical transitions
 - **Sliding window** -- tries 20/25/30/35/40 second windows, picks the highest scoring
 - **5 export profiles** -- Android, iPhone (M4R), Notification, Alarm, TikTok
 - **Desktop GUI** -- PySide6 app with waveform display and preview playback
-- **Batch processing** -- process multiple URLs from a text file
-- **Cache-first** -- never re-downloads if audio is cached locally
+- **Batch processing** -- process multiple inputs from a text file
+- **Cache-first** -- never re-processes if analysis is cached locally
 - **Zero cloud** -- all processing is local, no API keys required
 
 ## Requirements
@@ -119,15 +120,20 @@ ringforge batch songs.txt --mode auto --profile android --limit 10
 
 ## How It Works
 
-### 1. Download & Cache
+### 1. Audio Ingestion
 
-Audio is downloaded via yt-dlp and converted to 44.1kHz WAV. Cached by video ID at `cache/{hash}/audio.wav` along with metadata and analysis results.
+RingForge accepts audio from any source that FFmpeg can read. The core
+engine is source-agnostic -- it does not require YouTube.
 
-### 2. Heatmap Detection (when available)
+**Optional YouTube Import Plugin:** When a YouTube URL is provided,
+yt-dlp downloads the audio and converts it to 44.1kHz WAV. Results are
+cached by video ID at `cache/{hash}/audio.wav`.
+
+### 2. Heatmap Detection (YouTube source only, when available)
 
 Fetches the YouTube watch page and extracts the "Most Replayed" heatmap from the embedded `ytInitialData` JSON. The heatmap highlights sections that viewers replay most often.
 
-### 3. AI Fallback (when heatmap is unavailable)
+### 3. AI Scoring (always runs)
 
 Four signals are computed using librosa:
 
@@ -143,11 +149,11 @@ Four signals are computed using librosa:
 Each signal is scored 0-100 and combined with configurable weights:
 
 ```
-Default:        No heatmap:
-  Replay    0.45   Repetition 0.45
-  Repetition 0.25   Energy     0.25
-  Energy    0.15   Beat       0.20
-  Beat      0.10   Novelty    0.10
+Default (heatmap available):   No heatmap / local files:
+  Replay    0.45               Repetition 0.45
+  Repetition 0.25               Energy     0.25
+  Energy    0.15               Beat       0.20
+  Beat      0.10               Novelty    0.10
   Novelty   0.05
 ```
 
