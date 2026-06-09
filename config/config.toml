@@ -1,0 +1,85 @@
+# Default output duration in seconds
+default_duration = 30
+
+# Default export profile: android, iphone, notification, alarm, tiktok
+default_profile = "android"
+
+# Enable audio normalization to -1dB peak
+normalize = true
+
+# Apply 200ms fade in/out
+fade = true
+
+# Cache downloaded audio and analysis results
+cache = true
+
+# Logging level: DEBUG, INFO, WARNING, ERROR
+log_level = "INFO"
+
+# Scoring weights (must sum to 1.0)
+# These are used when heatmap data is available
+[weights.default]
+replay = 0.45
+repetition = 0.25
+energy = 0.15
+beat = 0.10
+novelty = 0.05
+
+# Scoring weights when heatmap is not available
+[weights.no_heatmap]
+repetition = 0.45
+energy = 0.25
+beat = 0.20
+novelty = 0.10
+
+# Sliding window candidate durations in seconds
+[sliding_window]
+candidates = [20, 25, 30, 35, 40]
+search_radius = 10
+
+# Export profiles
+[profiles.android]
+codec = "mp3"
+bitrate = "192k"
+default_duration = 30
+fade_ms = 200
+normalize_db = -1.0
+bass_boost = false
+mono = false
+
+[profiles.iphone]
+codec = "aac"
+bitrate = "128k"
+default_duration = 30
+fade_ms = 200
+normalize_db = -1.0
+bass_boost = false
+mono = false
+extension = "m4r"
+
+[profiles.notification]
+codec = "mp3"
+bitrate = "128k"
+default_duration = 5
+fade_ms = 100
+normalize_db = -2.0
+bass_boost = false
+mono = true
+
+[profiles.alarm]
+codec = "mp3"
+bitrate = "256k"
+default_duration = 30
+fade_ms = 50
+normalize_db = 0.0
+bass_boost = true
+mono = false
+
+[profiles.tiktok]
+codec = "mp3"
+bitrate = "192k"
+default_duration = 15
+fade_ms = 0
+normalize_db = -1.0
+bass_boost = true
+mono = false
