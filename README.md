@@ -1,5 +1,9 @@
 # RingForge
 
+<p align="center">
+  <img src="docs/logo.png" alt="RingForge Logo" width="300">
+</p>
+
 Find the best moment in any YouTube video and export it as a ringtone, notification sound, alarm, or TikTok clip.
 
 Instead of asking you to manually trim a song, RingForge analyzes the video and automatically detects the best 20-40 second segment using YouTube's "Most Replayed" heatmap and a multi-signal AI scoring engine.
