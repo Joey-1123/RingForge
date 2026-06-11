@@ -9,13 +9,13 @@ import os
 import sys
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QIcon, QColor
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings
+from PySide6.QtGui import QFont, QIcon, QColor, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLineEdit, QLabel, QComboBox, QListWidget,
     QListWidgetItem, QSplitter, QStatusBar, QMessageBox, QFrame,
-    QProgressBar, QSlider,
+    QProgressBar, QSlider, QFileDialog,
 )
 
 from core.logging import get_logger, setup as setup_logging
@@ -41,7 +41,8 @@ class RingForgeWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RingForge")
-        self.setMinimumSize(1100, 700)
+        self.setMinimumSize(900, 600)
+        self.setAcceptDrops(True)
 
         # State
         self._audio_path = None
@@ -49,11 +50,14 @@ class RingForgeWindow(QMainWindow):
         self._selected_idx = -1
         self._playing_preview = False
         self._preview_path = None
+        self._settings = QSettings("RingForge", "RingForge")
 
         # Initialize UI
         self._init_ui()
         self._init_player()
         self._connect_signals()
+        self._init_shortcuts()
+        self._restore_settings()
 
     def _init_ui(self):
         """Set up all UI widgets."""
@@ -63,17 +67,22 @@ class RingForgeWindow(QMainWindow):
         main_layout.setContentsMargins(10, 10, 10, 10)
         main_layout.setSpacing(8)
 
-        # ---- Top bar: URL input + download ----
+        # ---- Top bar: URL input + action buttons ----
         top_bar = QHBoxLayout()
+
+        self._open_btn = QPushButton("Open File")
+        self._open_btn.clicked.connect(self._on_open_file)
+
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText(
-            "Paste a YouTube URL or local file path..."
+            "YouTube URL or local file path (drag & drop supported)..."
         )
         self._url_input.returnPressed.connect(self._on_download)
 
-        self._download_btn = QPushButton("Download")
+        self._download_btn = QPushButton("Analyze")
         self._download_btn.clicked.connect(self._on_download)
 
+        top_bar.addWidget(self._open_btn)
         top_bar.addWidget(self._url_input, 1)
         top_bar.addWidget(self._download_btn)
         main_layout.addLayout(top_bar)
@@ -157,6 +166,10 @@ class RingForgeWindow(QMainWindow):
         self._export_btn.clicked.connect(self._on_export)
         export_layout.addWidget(self._export_btn)
 
+        self._open_exports_btn = QPushButton("Open Exports Folder")
+        self._open_exports_btn.clicked.connect(self._on_open_exports)
+        export_layout.addWidget(self._open_exports_btn)
+
         right_panel.addWidget(export_frame)
 
         right_widget = QWidget()
@@ -189,7 +202,78 @@ class RingForgeWindow(QMainWindow):
         self.download_complete.connect(self._on_download_complete)
         self.download_error.connect(self._on_download_error)
 
+    def _init_shortcuts(self):
+        """Set up keyboard shortcuts."""
+        QShortcut(QKeySequence("Space"), self, self._on_play_pause)
+        QShortcut(QKeySequence("Escape"), self, self._on_stop)
+        QShortcut(QKeySequence("Ctrl+E"), self, self._on_export)
+        QShortcut(QKeySequence("Ctrl+O"), self, self._on_open_file)
+
+    def _restore_settings(self):
+        """Restore window geometry and saved values."""
+        geo = self._settings.value("geometry")
+        if geo:
+            self.restoreGeometry(geo)
+        url = self._settings.value("last_url", "")
+        self._url_input.setText(url)
+        vol = int(self._settings.value("volume", 70))
+        self._volume_slider.setValue(vol)
+        profile = self._settings.value("profile", "android")
+        idx = self._profile_combo.findData(profile)
+        if idx >= 0:
+            self._profile_combo.setCurrentIndex(idx)
+
+    def _save_settings(self):
+        """Persist window geometry and current state."""
+        self._settings.setValue("geometry", self.saveGeometry())
+        self._settings.setValue("last_url", self._url_input.text())
+        self._settings.setValue("volume", self._volume_slider.value())
+        self._settings.setValue("profile", self._profile_combo.currentData())
+
+    def closeEvent(self, event):
+        """Save settings on close."""
+        self._save_settings()
+        super().closeEvent(event)
+
     # ---- Actions ----
+
+    def dragEnterEvent(self, event):
+        """Accept drag events with file URLs or text."""
+        if event.mimeData().hasUrls() or event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        """Handle file drops."""
+        if event.mimeData().hasUrls():
+            path = event.mimeData().urls()[0].toLocalFile()
+            if path:
+                self._url_input.setText(path)
+                self._on_download()
+        elif event.mimeData().hasText():
+            self._url_input.setText(event.mimeData().text().strip())
+            self._on_download()
+
+    def _on_open_file(self):
+        """Open a file dialog to select an audio file."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Audio File", "",
+            "Audio Files (*.wav *.mp3 *.flac *.ogg *.m4a *.aac *.wma);;All Files (*)",
+        )
+        if path:
+            self._url_input.setText(path)
+            self._on_download()
+
+    def _on_open_exports(self):
+        """Open the exports folder in the file manager."""
+        exports_dir = os.path.join(os.path.dirname(__file__), "..", "exports")
+        os.makedirs(exports_dir, exist_ok=True)
+        if sys.platform == "linux":
+            import subprocess
+            subprocess.run(
+                ["xdg-open", exports_dir],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
 
     def _on_download(self):
         """Start downloading the URL in a background thread."""
@@ -413,15 +497,6 @@ class RingForgeWindow(QMainWindow):
                 base_name=f"ringforge_{int(cand['start'])}-{int(cand['end'])}",
             )
             self._status.showMessage(f"Exported: {output_path}")
-
-            # Open file location
-            if sys.platform == "linux":
-                import subprocess
-                subprocess.run(
-                    ["xdg-open", os.path.dirname(output_path)],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
         except Exception as e:
             log.error("Export failed: %s", e)
             QMessageBox.critical(self, "Export Error", str(e))
