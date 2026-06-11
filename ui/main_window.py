@@ -7,9 +7,8 @@ and export into a single desktop interface.
 
 import os
 import sys
-import threading
 
-from PySide6.QtCore import Qt, QTimer, Signal, QSettings
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings, QThread
 from PySide6.QtGui import QFont, QIcon, QColor, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -27,16 +26,13 @@ from audio.effects import apply_all
 from audio.export import export_profile, get_supported_profiles
 from ui.waveform_widget import WaveformWidget
 from ui.player import AudioPlayer
+from ui.worker import AnalysisWorker
 
 log = get_logger()
 
 
 class RingForgeWindow(QMainWindow):
     """Main application window."""
-
-    # Signals for cross-thread communication
-    download_complete = Signal(str, object, object)
-    download_error = Signal(str)
 
     def __init__(self):
         super().__init__()
@@ -51,6 +47,8 @@ class RingForgeWindow(QMainWindow):
         self._playing_preview = False
         self._preview_path = None
         self._settings = QSettings("RingForge", "RingForge")
+        self._worker = None
+        self._thread = None
 
         # Initialize UI
         self._init_ui()
@@ -102,6 +100,7 @@ class RingForgeWindow(QMainWindow):
         self._waveform = WaveformWidget()
         self._waveform.segment_clicked.connect(self._on_segment_clicked)
         self._waveform.position_changed.connect(self._on_waveform_seek)
+        self._waveform.candidate_modified.connect(self._on_candidate_modified)
 
         # Playback controls below waveform
         controls = QHBoxLayout()
@@ -198,9 +197,7 @@ class RingForgeWindow(QMainWindow):
         self._position_timer.timeout.connect(self._update_playback_ui)
 
     def _connect_signals(self):
-        """Connect cross-thread signals to their handlers."""
-        self.download_complete.connect(self._on_download_complete)
-        self.download_error.connect(self._on_download_error)
+        """(unused) Cross-thread signals are connected per-worker in _on_download."""
 
     def _init_shortcuts(self):
         """Set up keyboard shortcuts."""
@@ -276,14 +273,14 @@ class RingForgeWindow(QMainWindow):
             )
 
     def _on_download(self):
-        """Start downloading the URL in a background thread."""
-        url = self._url_input.text().strip()
-        if not url:
+        """Start analysis in a background QThread."""
+        input = self._url_input.text().strip()
+        if not input:
             return
 
         self._progress.setVisible(True)
         self._download_btn.setEnabled(False)
-        self._status.showMessage("Downloading...")
+        self._status.showMessage("Analyzing...")
         self._candidate_list.clear()
         self._candidates = []
         self._selected_idx = -1
@@ -293,45 +290,23 @@ class RingForgeWindow(QMainWindow):
         self._stop_btn.setEnabled(False)
         self._export_btn.setEnabled(False)
 
-        # Download in background thread
-        thread = threading.Thread(target=self._download_worker, args=(url,), daemon=True)
-        thread.start()
+        # Cancel any previous worker
+        if self._worker:
+            self._worker.cancel()
+        if self._thread:
+            self._thread.quit()
+            self._thread.wait()
 
-    def _download_worker(self, input):
-        """Download audio and process in background."""
-        try:
-            is_local = os.path.isfile(input)
-
-            if is_local:
-                audio_path = input
-                heatmap_markers = None
-                total_dur = None
-            else:
-                audio_path = ytdl.download(input)
-                from analyzer.heatmap import fetch_heatmap
-                meta = ytdl.get_metadata(input)
-                real_vid = meta.get("video_id") if meta else None
-                heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
-                total_dur = meta.get("duration") if meta else None
-
-            # Extract waveform
-            wf = extract_waveform(audio_path, num_points=500)
-
-            # Run scorer
-            from analyzer.scorer import compute_scores
-
-            candidates = compute_scores(
-                audio_path,
-                duration=30,
-                heatmap_markers=heatmap_markers,
-                max_end=total_dur,
-            )
-
-            # Emit signal to update UI on main thread
-            self.download_complete.emit(audio_path, wf, candidates)
-        except Exception as e:
-            log.error("Download failed: %s", e)
-            self.download_error.emit(str(e))
+        self._thread = QThread(self)
+        self._worker = AnalysisWorker(input)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_download_complete)
+        self._worker.error_occurred.connect(self._on_download_error)
+        self._worker.finished.connect(self._thread.quit)
+        self._worker.error_occurred.connect(self._thread.quit)
+        self._thread.finished.connect(self._worker.deleteLater)
+        self._thread.start()
 
     def _on_download_complete(self, audio_path, waveform_data, candidates):
         """Update UI after download and analysis complete."""
@@ -395,6 +370,15 @@ class RingForgeWindow(QMainWindow):
     def _on_segment_clicked(self, index):
         """Handle click on waveform candidate."""
         self._candidate_list.setCurrentRow(index)
+
+    def _on_candidate_modified(self, index, new_start, new_end):
+        """Handle snap-drag of candidate edge on waveform."""
+        if 0 <= index < len(self._candidates):
+            self._candidates[index]["start"] = new_start
+            self._candidates[index]["end"] = new_end
+            self._status.showMessage(
+                f"Candidate #{index+1}: {new_start:.1f}s - {new_end:.1f}s"
+            )
 
     def _on_waveform_seek(self, seconds):
         """Handle click on waveform for seeking."""
