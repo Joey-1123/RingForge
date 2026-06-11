@@ -4,9 +4,14 @@
   <img src="docs/logo.png" alt="RingForge Logo" width="300">
 </p>
 
-Find the best moment in any audio and export it as a ringtone, notification sound, alarm, or TikTok clip.
+Find the best moment in any audio and export it as a ringtone, notification
+sound, alarm, or TikTok clip.
 
-RingForge analyzes user-supplied audio using a multi-signal scoring engine (energy, repetition, beat, novelty) to automatically detect the best 20-40 second segment. It also includes an **optional YouTube import plugin** that can download audio and scrape "Most Replayed" heatmap data.
+RingForge analyzes user-supplied audio using a multi-signal scoring engine
+(energy, repetition, beat, novelty) to automatically detect the best segment.
+It has a **desktop GUI** with waveform display, playback, and manual editing,
+plus an **optional YouTube import plugin** for downloading audio and scraping
+"Most Replayed" heatmap data.
 
 ```
 Audio Input -> Analyze -> Pick top 5 -> Export
@@ -16,17 +21,30 @@ Audio Input -> Analyze -> Pick top 5 -> Export
 
 ## Features
 
-- **Works on any audio** -- local files, YouTube URLs, or any audio that FFmpeg can read
-- **Top 5 ranked candidates** -- shows you the best segments with labels explaining why each was chosen
-- **AI scoring engine** -- energy, repetition, beat, and novelty analysis via librosa
-- **Optional YouTube import** -- downloads audio and scrapes "Most Replayed" heatmap when available
-- **Smart start/end** -- snaps cuts to the nearest beat onset for clean, musical transitions
-- **Sliding window** -- tries 20/25/30/35/40 second windows, picks the highest scoring
-- **5 export profiles** -- Android, iPhone (M4R), Notification, Alarm, TikTok
-- **Desktop GUI** -- PySide6 app with waveform display and preview playback
-- **Batch processing** -- process multiple inputs from a text file
+- **Works on any audio** -- local files, YouTube URLs, or anything FFmpeg can
+  read
+- **Desktop GUI** -- PySide6 app with waveform display, playback, zoom, manual
+  editing, and batch processing
+- **Top 5 ranked candidates** -- shows the best segments with labels explaining
+  why each was chosen
+- **AI scoring engine** -- energy, repetition, beat, and novelty analysis via
+  librosa
+- **Optional YouTube import** -- downloads audio and scrapes "Most Replayed"
+  heatmap when available
+- **Smart start/end** -- snaps cuts to the nearest beat onset for clean,
+  musical transitions
+- **Sliding window** -- tries multiple window sizes and picks the highest
+  scoring
+- **5 export profiles** -- Android (MP3), iPhone (M4R), Notification, Alarm,
+  TikTok
+- **Waveform zoom** -- scroll to zoom in/out, drag to pan when zoomed
+- **Manual mode** -- fine-tune segment start/end with spinboxes or drag
+  handles on the waveform
+- **Batch processing** -- queue multiple inputs and process them sequentially
 - **Cache-first** -- never re-processes if analysis is cached locally
 - **Zero cloud** -- all processing is local, no API keys required
+- **Configurable** -- edit weights, profiles, and defaults via the GUI
+  Preferences dialog or directly in config.toml
 
 ## Requirements
 
@@ -40,26 +58,60 @@ Audio Input -> Analyze -> Pick top 5 -> Export
 git clone https://github.com/Joey-1123/RingForge.git
 cd RingForge
 
-# Install with uv (recommended)
+# Install core dependencies with uv (recommended)
 uv sync
 
-# Or with pip
-pip install -e .
-
-# For the desktop GUI
+# Optional: GUI (PySide6)
 uv sync --extra gui
+
+# Optional: YouTube import (yt-dlp, requests)
+uv sync --extra youtube
+
+# Or install everything
+uv sync --extra all
 ```
 
-## Usage
+## Desktop GUI
+
+Launch the GUI:
+
+```bash
+ringforge gui
+```
+
+### GUI features
+
+| Feature | How |
+|---------|-----|
+| Open a local file | File > Open File button, Ctrl+O, or drag-and-drop |
+| Analyze a YouTube URL | Paste URL, press Enter or click Analyze |
+| Select a candidate | Click on the waveform or in the candidates list |
+| Preview playback | Space to play/pause, Escape to stop |
+| Seek | Click anywhere on the waveform |
+| Adjust volume | Slider in the playback controls |
+| Fine-tune a segment | Switch to the Manual tab, adjust start/end spinboxes |
+| Drag handles | On the waveform, drag the edges of the selected candidate |
+| Waveform zoom | Scroll up/down to zoom; drag to pan when zoomed |
+| Export | Ctrl+E or click Export Selected (Save As dialog) |
+| Manual export | Ctrl+Shift+S or click Export As in the Manual tab |
+| Batch process | Click Batch, add URLs/files, click Process All |
+| Preferences | Click Prefs to edit weights and defaults |
+| Open exports folder | Click Open Exports Folder |
+| Navigate candidates | Up/Down arrow keys |
+
+## CLI Usage
 
 ### Quick start
 
 ```bash
-# Auto mode -- download, analyze, show top 5, export the best segment
+# Auto mode -- analyze, show top 5, export the best segment
 ringforge generate "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --mode auto
 
 # Manual mode -- pick start and end times yourself
 ringforge generate "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --mode manual --start 60 --duration 15
+
+# Local file -- works the same way
+ringforge generate ~/music/song.mp3 --mode auto
 ```
 
 ### Commands
@@ -67,9 +119,9 @@ ringforge generate "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --mode manual -
 | Command | Description |
 |---------|-------------|
 | `ringforge download <url>` | Download and cache audio |
-| `ringforge info <url>` | Show video metadata + audio analysis (BPM, key, loudness) |
-| `ringforge preview <url> [--start] [--end]` | ASCII waveform + play a segment |
-| `ringforge generate <url> --mode auto` | Full pipeline: top 5 candidates -> export (default) |
+| `ringforge info <url>` | Show metadata + audio analysis (BPM, key, loudness) |
+| `ringforge preview <url>` | ASCII waveform + play a segment |
+| `ringforge generate <url> --mode auto` | Full pipeline: top 5 -> export (default) |
 | `ringforge generate <url> --mode heatmap` | Detect using YouTube Most Replayed |
 | `ringforge generate <url> --mode manual` | Manual --start/--end/--duration |
 | `ringforge generate <url> --mode notification` | Find short punchy segment (3-8s) |
@@ -80,7 +132,7 @@ ringforge generate "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --mode manual -
 ### Generate options
 
 ```
-ringforge generate <url>
+ringforge generate <input>
   --mode auto|heatmap|manual|notification
   --profile android|iphone|notification|alarm|tiktok
   --start <seconds>
@@ -88,6 +140,8 @@ ringforge generate <url>
   --duration <seconds>
   --force              Re-download even if cached
 ```
+
+`<input>` can be a YouTube URL **or** a path to a local audio file.
 
 ### Export profiles
 
@@ -101,37 +155,33 @@ ringforge generate <url>
 
 ### Batch processing
 
-Create a text file with one URL per line:
-
-```
-# songs.txt
+```bash
+# Create a text file with one URL per line
+cat > songs.txt << EOF
 https://www.youtube.com/watch?v=dQw4w9WgXcQ
 https://www.youtube.com/watch?v=9bZkp7q19f0
-https://www.youtube.com/watch?v=fJ9rUzIMcZQ
-```
+EOF
 
-Then run:
-
-```bash
+# Process them
 ringforge batch songs.txt --mode auto --profile android --limit 10
 ```
-
----
 
 ## How It Works
 
 ### 1. Audio Ingestion
 
-RingForge accepts audio from any source that FFmpeg can read. The core
-engine is source-agnostic -- it does not require YouTube.
+RingForge accepts audio from any source that FFmpeg can read. The core engine
+is source-agnostic -- it does not require YouTube.
 
-**Optional YouTube Import Plugin:** When a YouTube URL is provided,
-yt-dlp downloads the audio and converts it to 44.1kHz WAV. Results are
-cached by video ID at `cache/{hash}/audio.wav`.
+**Optional YouTube Import Plugin:** When a YouTube URL is provided, yt-dlp
+downloads the audio and converts it to 44.1kHz WAV. Results are cached by URL
+hash at `cache/{hash}/audio.wav`.
 
-### 2. Heatmap Detection (YouTube source only, when available)
+### 2. Heatmap Detection (YouTube source only)
 
-Fetches the YouTube watch page and extracts the "Most Replayed" heatmap from the embedded `ytInitialData` JSON. The heatmap highlights sections that viewers replay most often.
+Fetches the YouTube watch page and extracts the "Most Replayed" heatmap from
+the embedded `ytInitialData` JSON. The heatmap highlights sections that viewers
+replay most often.
 
 ### 3. AI Scoring (always runs)
 
@@ -165,8 +215,8 @@ Default (heatmap available):   No heatmap / local files:
 
 ### 6. Top 5 Candidates
 
-The scorer tries multiple window sizes (20-40s) around each peak and returns
-the five best, each labeled with why it was chosen:
+The scorer tries multiple window sizes around each peak and returns the five
+best, each labeled with why it was chosen:
 
 | Rank | Label | Source |
 |------|-------|--------|
@@ -176,11 +226,10 @@ the five best, each labeled with why it was chosen:
 | #4 | Best Ringtone Flow | Combined + fade fit |
 | #5 | Wildcard | Highest novelty |
 
----
-
 ## Configuration
 
-Edit `config/config.toml` to change defaults:
+Edit `config/config.toml` or use the GUI Preferences dialog (Prefs button)
+to change defaults and scoring weights.
 
 ```toml
 default_duration = 30
@@ -202,18 +251,14 @@ candidates = [20, 25, 30, 35, 40]
 search_radius = 10
 ```
 
----
-
 ## Running Tests
 
 ```bash
 uv run pytest -v
 ```
 
-36 tests covering trim, effects, heatmap, energy, repetition, beat,
-scorer, and export modules.
-
----
+36 tests covering trim, effects, heatmap, energy, repetition, beat, scorer,
+and export modules.
 
 ## Project Structure
 
@@ -224,7 +269,6 @@ RingForge/
   downloader/  - yt-dlp wrapper
   analyzer/    - heatmap, energy, repetition, beat, scorer, metadata
   audio/       - trim, effects, export conversion
-  exporter/    - profile-based export
   ui/          - PySide6 desktop GUI
   cache/       - {video_id}/audio.wav, metadata.json, heatmap.json
   exports/     - generated ringtones

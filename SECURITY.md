@@ -2,9 +2,7 @@
 
 ## Reporting a Vulnerability
 
-Report bugs and security issues by opening a public issue on GitHub:
-
-**https://github.com/Joey-1123/RingForge/issues/new**
+Report bugs and security issues by opening a public issue on GitHub
 
 ## Supported Versions
 

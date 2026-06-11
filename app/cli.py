@@ -77,7 +77,8 @@ def _exports_dir():
 
 @click.group()
 @click.option("--log-level", default=None, help="Log level (DEBUG, INFO, etc.)")
-def main(log_level):
+@click.version_option(version="0.2.0", prog_name="ringforge")
+def main(log_level, version=None):
     """RingForge: Find the best moment in any audio and export it."""
     cfg = load_config()
     level = log_level or cfg.get("log_level", "INFO")

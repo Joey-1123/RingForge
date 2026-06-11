@@ -9,7 +9,8 @@ import os
 import sys
 import tempfile
 
-from PySide6.QtCore import Qt, QTimer, Signal, QSettings, QThread
+from PySide6.QtCore import Qt, QTimer, Signal, QSettings, QThread, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtGui import QFont, QIcon, QColor, QShortcut, QKeySequence
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -656,13 +657,7 @@ class RingForgeWindow(QMainWindow):
         """Open the exports folder in the file manager."""
         exports_dir = os.path.join(os.path.dirname(__file__), "..", "exports")
         os.makedirs(exports_dir, exist_ok=True)
-        if sys.platform == "linux":
-            import subprocess
-            subprocess.run(
-                ["xdg-open", exports_dir],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+        QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.abspath(exports_dir)))
 
     def _on_open_batch(self):
         """Open the batch processing dialog."""
