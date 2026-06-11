@@ -9,7 +9,7 @@ import os
 import sys
 import threading
 
-from PySide6.QtCore import Qt, QTimer, Q_ARG
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QFont, QIcon, QColor
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -34,6 +34,10 @@ log = get_logger()
 class RingForgeWindow(QMainWindow):
     """Main application window."""
 
+    # Signals for cross-thread communication
+    download_complete = Signal(str, object, object)
+    download_error = Signal(str)
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("RingForge")
@@ -49,6 +53,7 @@ class RingForgeWindow(QMainWindow):
         # Initialize UI
         self._init_ui()
         self._init_player()
+        self._connect_signals()
 
     def _init_ui(self):
         """Set up all UI widgets."""
@@ -179,6 +184,11 @@ class RingForgeWindow(QMainWindow):
         self._position_timer.setInterval(100)  # 100ms
         self._position_timer.timeout.connect(self._update_playback_ui)
 
+    def _connect_signals(self):
+        """Connect cross-thread signals to their handlers."""
+        self.download_complete.connect(self._on_download_complete)
+        self.download_error.connect(self._on_download_error)
+
     # ---- Actions ----
 
     def _on_download(self):
@@ -227,24 +237,11 @@ class RingForgeWindow(QMainWindow):
                 max_end=total_dur,
             )
 
-            # Schedule UI update on main thread
-            from PySide6.QtCore import QMetaObject, Qt, Q_ARG
-            QMetaObject.invokeMethod(
-                self,
-                "_on_download_complete",
-                Qt.ConnectionType.QueuedConnection,
-                Q_ARG(str, audio_path),
-                Q_ARG(object, wf),
-                Q_ARG(object, candidates),
-            )
+            # Emit signal to update UI on main thread
+            self.download_complete.emit(audio_path, wf, candidates)
         except Exception as e:
             log.error("Download failed: %s", e)
-            QMetaObject.invokeMethod(
-                self,
-                "_on_download_error",
-                Qt.ConnectionType.QueuedConnection,
-                Q_ARG(str, str(e)),
-            )
+            self.download_error.emit(str(e))
 
     def _on_download_complete(self, audio_path, waveform_data, candidates):
         """Update UI after download and analysis complete."""
