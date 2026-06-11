@@ -7,6 +7,7 @@ and export into a single desktop interface.
 
 import os
 import sys
+import tempfile
 
 from PySide6.QtCore import Qt, QTimer, Signal, QSettings, QThread
 from PySide6.QtGui import QFont, QIcon, QColor, QShortcut, QKeySequence
@@ -15,11 +16,12 @@ from PySide6.QtWidgets import (
     QPushButton, QLineEdit, QLabel, QComboBox, QListWidget,
     QListWidgetItem, QSplitter, QStatusBar, QMessageBox, QFrame,
     QProgressBar, QSlider, QFileDialog, QTabWidget, QDoubleSpinBox,
-    QDialog, QGroupBox, QFormLayout,
+    QDialog, QGroupBox, QFormLayout, QCheckBox, QSpinBox,
+    QDialogButtonBox, QScrollArea,
 )
 
 from core.logging import get_logger, setup as setup_logging
-from core.config import load as load_config
+from core.config import load as load_config, save as save_config, get_defaults
 from core.waveform import extract_waveform
 from downloader import ytdl
 from audio.trim import trim
@@ -35,7 +37,7 @@ log = get_logger()
 class BatchDialog(QDialog):
     """Queue-based batch processing dialog."""
 
-    def __init__(self, parent=None):
+    def __init__(self, profile_name: str = "android", parent=None):
         super().__init__(parent)
         self.setWindowTitle("Batch Process")
         self.setMinimumSize(500, 400)
@@ -43,6 +45,7 @@ class BatchDialog(QDialog):
         self._worker = None
         self._thread = None
         self._cancelled = False
+        self._profile_name = profile_name
         self._init_ui()
 
     def _init_ui(self):
@@ -151,7 +154,7 @@ class BatchDialog(QDialog):
             )
             export_profile(
                 audio,
-                "android",
+                self._profile_name,
                 base_name=f"batch_{int(cand['start'])}-{int(cand['end'])}",
             )
             self._items[index] = (self._items[index][0], "done")
@@ -193,6 +196,156 @@ class BatchDialog(QDialog):
             self._thread.wait()
 
 
+class PreferencesDialog(QDialog):
+    """Edit config.toml settings from within the GUI."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Preferences")
+        self.setMinimumSize(500, 400)
+        self._orig_cfg = load_config()
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        form = QFormLayout(content)
+
+        defaults = get_defaults()
+        self._default_duration = QSpinBox()
+        self._default_duration.setRange(1, 300)
+        self._default_duration.setValue(defaults["default_duration"])
+        form.addRow("Default duration (s):", self._default_duration)
+
+        self._default_profile = QComboBox()
+        for p in get_supported_profiles():
+            self._default_profile.addItem(p.capitalize(), p)
+        idx = self._default_profile.findData(defaults["default_profile"])
+        if idx >= 0:
+            self._default_profile.setCurrentIndex(idx)
+        form.addRow("Default profile:", self._default_profile)
+
+        self._normalize = QCheckBox()
+        self._normalize.setChecked(defaults["normalize"])
+        form.addRow("Normalize audio:", self._normalize)
+
+        self._fade = QCheckBox()
+        self._fade.setChecked(defaults["fade"])
+        form.addRow("Fade in/out:", self._fade)
+
+        # Weights section
+        weights_group = QGroupBox("Scoring Weights (with heatmap)")
+        wf = QFormLayout(weights_group)
+        w_cfg = self._orig_cfg.get("weights", {}).get("default", {})
+        self._w_replay = QDoubleSpinBox()
+        self._w_replay.setRange(0, 1)
+        self._w_replay.setSingleStep(0.05)
+        self._w_replay.setDecimals(2)
+        self._w_replay.setValue(w_cfg.get("replay", 0.45))
+        wf.addRow("Replay:", self._w_replay)
+        self._w_repetition = QDoubleSpinBox()
+        self._w_repetition.setRange(0, 1)
+        self._w_repetition.setSingleStep(0.05)
+        self._w_repetition.setDecimals(2)
+        self._w_repetition.setValue(w_cfg.get("repetition", 0.25))
+        wf.addRow("Repetition:", self._w_repetition)
+        self._w_energy = QDoubleSpinBox()
+        self._w_energy.setRange(0, 1)
+        self._w_energy.setSingleStep(0.05)
+        self._w_energy.setDecimals(2)
+        self._w_energy.setValue(w_cfg.get("energy", 0.15))
+        wf.addRow("Energy:", self._w_energy)
+        self._w_beat = QDoubleSpinBox()
+        self._w_beat.setRange(0, 1)
+        self._w_beat.setSingleStep(0.05)
+        self._w_beat.setDecimals(2)
+        self._w_beat.setValue(w_cfg.get("beat", 0.10))
+        wf.addRow("Beat:", self._w_beat)
+        self._w_novelty = QDoubleSpinBox()
+        self._w_novelty.setRange(0, 1)
+        self._w_novelty.setSingleStep(0.05)
+        self._w_novelty.setDecimals(2)
+        self._w_novelty.setValue(w_cfg.get("novelty", 0.05))
+        wf.addRow("Novelty:", self._w_novelty)
+        form.addRow(weights_group)
+
+        # No-heatmap weights
+        nh_group = QGroupBox("Scoring Weights (without heatmap)")
+        nhf = QFormLayout(nh_group)
+        nh_cfg = self._orig_cfg.get("weights", {}).get("no_heatmap", {})
+        self._nh_repetition = QDoubleSpinBox()
+        self._nh_repetition.setRange(0, 1)
+        self._nh_repetition.setSingleStep(0.05)
+        self._nh_repetition.setDecimals(2)
+        self._nh_repetition.setValue(nh_cfg.get("repetition", 0.45))
+        nhf.addRow("Repetition:", self._nh_repetition)
+        self._nh_energy = QDoubleSpinBox()
+        self._nh_energy.setRange(0, 1)
+        self._nh_energy.setSingleStep(0.05)
+        self._nh_energy.setDecimals(2)
+        self._nh_energy.setValue(nh_cfg.get("energy", 0.25))
+        nhf.addRow("Energy:", self._nh_energy)
+        self._nh_beat = QDoubleSpinBox()
+        self._nh_beat.setRange(0, 1)
+        self._nh_beat.setSingleStep(0.05)
+        self._nh_beat.setDecimals(2)
+        self._nh_beat.setValue(nh_cfg.get("beat", 0.20))
+        nhf.addRow("Beat:", self._nh_beat)
+        self._nh_novelty = QDoubleSpinBox()
+        self._nh_novelty.setRange(0, 1)
+        self._nh_novelty.setSingleStep(0.05)
+        self._nh_novelty.setDecimals(2)
+        self._nh_novelty.setValue(nh_cfg.get("novelty", 0.10))
+        nhf.addRow("Novelty:", self._nh_novelty)
+        form.addRow(nh_group)
+
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+
+        btn_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        btn_box.accepted.connect(self._on_save)
+        btn_box.rejected.connect(self.reject)
+        layout.addWidget(btn_box)
+
+    def _on_save(self):
+        """Collect values and write to config.toml."""
+        cfg = load_config()
+        cfg["default_duration"] = self._default_duration.value()
+        cfg["default_profile"] = self._default_profile.currentData()
+        cfg["normalize"] = self._normalize.isChecked()
+        cfg["fade"] = self._fade.isChecked()
+
+        cfg.setdefault("weights", {})
+        cfg["weights"]["default"] = {
+            "replay": self._w_replay.value(),
+            "repetition": self._w_repetition.value(),
+            "energy": self._w_energy.value(),
+            "beat": self._w_beat.value(),
+            "novelty": self._w_novelty.value(),
+        }
+        cfg["weights"]["no_heatmap"] = {
+            "repetition": self._nh_repetition.value(),
+            "energy": self._nh_energy.value(),
+            "beat": self._nh_beat.value(),
+            "novelty": self._nh_novelty.value(),
+        }
+
+        try:
+            save_config(cfg)
+            QMessageBox.information(
+                self, "Preferences",
+                "Settings saved. Restart analysis for new weights to take effect.",
+            )
+            self.accept()
+        except Exception as e:
+            QMessageBox.critical(self, "Save Error", f"Failed to save config: {e}")
+
+
 class RingForgeWindow(QMainWindow):
     """Main application window."""
 
@@ -231,24 +384,33 @@ class RingForgeWindow(QMainWindow):
         top_bar = QHBoxLayout()
 
         self._open_btn = QPushButton("Open File")
+        self._open_btn.setToolTip("Browse for a local audio file (Ctrl+O)")
         self._open_btn.clicked.connect(self._on_open_file)
 
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText(
             "YouTube URL or local file path (drag & drop supported)..."
         )
+        self._url_input.setToolTip("Enter a YouTube URL or local file path, then press Enter to analyze")
         self._url_input.returnPressed.connect(self._on_download)
 
         self._download_btn = QPushButton("Analyze")
+        self._download_btn.setToolTip("Download and analyze the audio for highlight candidates")
         self._download_btn.clicked.connect(self._on_download)
 
         self._batch_btn = QPushButton("Batch")
+        self._batch_btn.setToolTip("Open the batch processing dialog to queue multiple files")
         self._batch_btn.clicked.connect(self._on_open_batch)
+
+        self._prefs_btn = QPushButton("Prefs")
+        self._prefs_btn.setToolTip("Edit configuration settings (weights, defaults)")
+        self._prefs_btn.clicked.connect(self._on_open_preferences)
 
         top_bar.addWidget(self._open_btn)
         top_bar.addWidget(self._url_input, 1)
         top_bar.addWidget(self._download_btn)
         top_bar.addWidget(self._batch_btn)
+        top_bar.addWidget(self._prefs_btn)
         main_layout.addLayout(top_bar)
 
         # ---- Progress bar ----
@@ -273,10 +435,12 @@ class RingForgeWindow(QMainWindow):
         controls = QHBoxLayout()
         self._play_btn = QPushButton("Play")
         self._play_btn.setEnabled(False)
+        self._play_btn.setToolTip("Play/pause the preview segment (Space)")
         self._play_btn.clicked.connect(self._on_play_pause)
 
         self._stop_btn = QPushButton("Stop")
         self._stop_btn.setEnabled(False)
+        self._stop_btn.setToolTip("Stop playback (Escape)")
         self._stop_btn.clicked.connect(self._on_stop)
 
         self._volume_slider = QSlider(Qt.Orientation.Horizontal)
@@ -333,10 +497,12 @@ class RingForgeWindow(QMainWindow):
 
         self._export_btn = QPushButton("Export Selected")
         self._export_btn.setEnabled(False)
+        self._export_btn.setToolTip("Export the selected candidate with Save As dialog (Ctrl+E)")
         self._export_btn.clicked.connect(self._on_export)
         export_layout.addWidget(self._export_btn)
 
         self._open_exports_btn = QPushButton("Open Exports Folder")
+        self._open_exports_btn.setToolTip("Open the exports directory in your file manager")
         self._open_exports_btn.clicked.connect(self._on_open_exports)
         export_layout.addWidget(self._open_exports_btn)
 
@@ -370,14 +536,19 @@ class RingForgeWindow(QMainWindow):
 
         manual_layout.addWidget(manual_group)
 
+        self._manual_start.valueChanged.connect(self._update_manual_btn_state)
+        self._manual_end.valueChanged.connect(self._update_manual_btn_state)
+
         manual_btn_row = QHBoxLayout()
         self._manual_preview_btn = QPushButton("Preview")
         self._manual_preview_btn.setEnabled(False)
+        self._manual_preview_btn.setToolTip("Preview the custom segment")
         self._manual_preview_btn.clicked.connect(self._on_manual_preview)
         manual_btn_row.addWidget(self._manual_preview_btn)
 
         self._manual_export_btn = QPushButton("Export As...")
         self._manual_export_btn.setEnabled(False)
+        self._manual_export_btn.setToolTip("Export the custom segment with Save As dialog (Ctrl+Shift+S)")
         self._manual_export_btn.clicked.connect(self._on_manual_export)
         manual_btn_row.addWidget(self._manual_export_btn)
 
@@ -419,6 +590,9 @@ class RingForgeWindow(QMainWindow):
         QShortcut(QKeySequence("Ctrl+O"), self, self._on_open_file)
         QShortcut(QKeySequence("Ctrl+Shift+S"), self, self._on_manual_export)
 
+        QShortcut(QKeySequence("Up"), self, self._on_candidate_up)
+        QShortcut(QKeySequence("Down"), self, self._on_candidate_down)
+
     def _restore_settings(self):
         """Restore window geometry and saved values."""
         geo = self._settings.value("geometry")
@@ -441,8 +615,13 @@ class RingForgeWindow(QMainWindow):
         self._settings.setValue("profile", self._profile_combo.currentData())
 
     def closeEvent(self, event):
-        """Save settings on close."""
+        """Save settings and clean up temp files on close."""
         self._save_settings()
+        if self._preview_path and os.path.exists(self._preview_path):
+            try:
+                os.unlink(self._preview_path)
+            except OSError:
+                pass
         super().closeEvent(event)
 
     # ---- Actions ----
@@ -487,8 +666,18 @@ class RingForgeWindow(QMainWindow):
 
     def _on_open_batch(self):
         """Open the batch processing dialog."""
-        dialog = BatchDialog(self)
-        dialog.show()
+        dialog = BatchDialog(
+            profile_name=self._profile_combo.currentData(),
+            parent=self,
+        )
+        dialog.exec()
+
+    def _on_open_preferences(self):
+        """Open the preferences dialog."""
+        dialog = PreferencesDialog(self)
+        if dialog.exec() == QDialog.DialogCode.Accepted:
+            from core.config import invalidate_cache
+            invalidate_cache()
 
     def _on_download(self):
         """Start analysis in a background QThread."""
@@ -527,6 +716,12 @@ class RingForgeWindow(QMainWindow):
         self._thread.finished.connect(self._worker.deleteLater)
         self._thread.start()
 
+    def _update_manual_btn_state(self):
+        """Enable manual preview/export only when start < end."""
+        valid = self._manual_start.value() < self._manual_end.value()
+        self._manual_preview_btn.setEnabled(valid and self._audio_path is not None)
+        self._manual_export_btn.setEnabled(valid and self._audio_path is not None)
+
     def _on_download_complete(self, audio_path, waveform_data, candidates):
         """Update UI after download and analysis complete."""
         self._audio_path = audio_path
@@ -559,12 +754,22 @@ class RingForgeWindow(QMainWindow):
         self._manual_start.setMaximum(dur)
         self._manual_end.setMaximum(dur)
         self._manual_end.setValue(min(dur, 30))
-        self._manual_preview_btn.setEnabled(True)
-        self._manual_export_btn.setEnabled(True)
+        self._update_manual_btn_state()
 
-        self._status.showMessage(
-            f"Loaded {dur:.0f}s audio with {len(candidates)} candidates"
-        )
+        # Show file info in status bar
+        try:
+            from pydub import AudioSegment
+            seg = AudioSegment.from_file(self._audio_path)
+            sr = seg.frame_rate
+            ch = seg.channels
+            self._status.showMessage(
+                f"Loaded {dur:.0f}s audio ({ch}ch, {sr}Hz) with "
+                f"{len(candidates)} candidates"
+            )
+        except Exception:
+            self._status.showMessage(
+                f"Loaded {dur:.0f}s audio with {len(candidates)} candidates"
+            )
 
     def _on_download_error(self, error_msg):
         """Show error message."""
@@ -591,6 +796,18 @@ class RingForgeWindow(QMainWindow):
         self._manual_end.setValue(c["end"])
 
         self._preview_segment(c["start"], c["end"])
+
+    def _on_candidate_up(self):
+        """Navigate to the previous candidate."""
+        row = self._candidate_list.currentRow()
+        if row > 0:
+            self._candidate_list.setCurrentRow(row - 1)
+
+    def _on_candidate_down(self):
+        """Navigate to the next candidate."""
+        row = self._candidate_list.currentRow()
+        if row < self._candidate_list.count() - 1:
+            self._candidate_list.setCurrentRow(row + 1)
 
     def _on_segment_clicked(self, index):
         """Handle click on waveform candidate."""
@@ -620,10 +837,16 @@ class RingForgeWindow(QMainWindow):
         self._player.stop()
         self._position_timer.stop()
 
+        # Clean up previous preview temp file
+        if self._preview_path and os.path.exists(self._preview_path):
+            try:
+                os.unlink(self._preview_path)
+            except OSError:
+                pass
+
         trimmed = trim(self._audio_path, start, end)
-        preview_dir = os.path.join(os.path.dirname(__file__), "..", "exports")
-        os.makedirs(preview_dir, exist_ok=True)
-        self._preview_path = os.path.join(preview_dir, "_preview.wav")
+        fd, self._preview_path = tempfile.mkstemp(suffix=".wav", prefix="ringforge_preview_")
+        os.close(fd)
         trimmed.export(self._preview_path, format="wav")
 
         self._player.load(self._preview_path)

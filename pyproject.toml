@@ -10,6 +10,7 @@ dependencies = [
     "soundfile>=0.12.1",
     "numpy>=1.26.0",
     "tomli>=2.0.0",
+    "tomli-w>=1.2.0",
 ]
 
 [project.optional-dependencies]

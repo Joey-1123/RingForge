@@ -3,6 +3,7 @@ import traceback
 
 from PySide6.QtCore import QObject, Signal
 
+from core.config import load as load_config
 from core.logging import get_logger
 from core.waveform import extract_waveform
 
@@ -13,9 +14,11 @@ class AnalysisWorker(QObject):
     finished = Signal(str, object, object)
     error_occurred = Signal(str)
 
-    def __init__(self, input: str, parent=None):
+    def __init__(self, input: str, duration: int | None = None, parent=None):
         super().__init__(parent)
         self._input = input
+        cfg = load_config()
+        self._duration = duration or cfg.get("default_duration", 30)
         self._cancelled = False
 
     def cancel(self):
@@ -51,7 +54,7 @@ class AnalysisWorker(QObject):
             from analyzer.scorer import compute_scores
             candidates = compute_scores(
                 audio_path,
-                duration=30,
+                duration=self._duration,
                 heatmap_markers=heatmap_markers,
                 max_end=total_dur,
             )
