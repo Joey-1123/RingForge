@@ -67,7 +67,7 @@ class RingForgeWindow(QMainWindow):
         top_bar = QHBoxLayout()
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText(
-            "Paste a YouTube URL here..."
+            "Paste a YouTube URL or local file path..."
         )
         self._url_input.returnPressed.connect(self._on_download)
 
@@ -213,22 +213,28 @@ class RingForgeWindow(QMainWindow):
         thread = threading.Thread(target=self._download_worker, args=(url,), daemon=True)
         thread.start()
 
-    def _download_worker(self, url):
+    def _download_worker(self, input):
         """Download audio and process in background."""
         try:
-            audio_path = ytdl.download(url)
+            is_local = os.path.isfile(input)
+
+            if is_local:
+                audio_path = input
+                heatmap_markers = None
+                total_dur = None
+            else:
+                audio_path = ytdl.download(input)
+                from analyzer.heatmap import fetch_heatmap
+                meta = ytdl.get_metadata(input)
+                real_vid = meta.get("video_id") if meta else None
+                heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+                total_dur = meta.get("duration") if meta else None
 
             # Extract waveform
             wf = extract_waveform(audio_path, num_points=500)
 
-            # Run scorer in same thread after download
-            from analyzer.heatmap import fetch_heatmap
+            # Run scorer
             from analyzer.scorer import compute_scores
-
-            meta = ytdl.get_metadata(url)
-            real_vid = meta.get("video_id") if meta else None
-            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
-            total_dur = meta.get("duration") if meta else None
 
             candidates = compute_scores(
                 audio_path,

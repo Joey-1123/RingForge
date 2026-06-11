@@ -23,13 +23,21 @@ def _ensure_dir(video_id: str) -> str:
     return path
 
 
-def video_id_from_url(url: str) -> str:
-    """
-    Extract a stable cache key from a YouTube URL.
-    We use a SHA256 hash of the URL to avoid storing raw URLs in filenames.
-    Alternatively, we could parse the v= parameter, but hashing is simpler.
-    """
+def cache_key_from_url(url: str) -> str:
+    """Generate a stable cache key from a URL (YouTube or otherwise)."""
     return hashlib.sha256(url.encode()).hexdigest()[:16]
+
+
+def cache_key_from_path(file_path: str) -> str:
+    """Generate a cache key from a local file path + modification time."""
+    abspath = os.path.abspath(file_path)
+    mtime = os.path.getmtime(file_path)
+    return hashlib.sha256(f"{abspath}:{mtime}".encode()).hexdigest()[:16]
+
+
+def video_id_from_url(url: str) -> str:
+    """Deprecated alias for cache_key_from_url."""
+    return cache_key_from_url(url)
 
 
 def get_audio_path(video_id: str) -> str:

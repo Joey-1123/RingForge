@@ -16,10 +16,13 @@ import json
 import re
 import time
 
-import requests
-
 from core.cache import video_id_from_url, save_heatmap, load_heatmap
 from core.logging import get_logger
+
+try:
+    import requests
+except ImportError:
+    requests = None  # YouTube features unavailable
 
 log = get_logger()
 
@@ -54,6 +57,10 @@ def fetch_heatmap(video_id: str, force: bool = False) -> list[dict] | None:
         List of dicts with keys 'time' (seconds) and 'intensity' (0.0-1.0),
         sorted by time. Returns None if heatmap data is not available.
     """
+    if requests is None:
+        log.warning("requests not installed; cannot fetch heatmap")
+        return None
+
     # Check cache first
     if not force:
         cached = load_heatmap(video_id)

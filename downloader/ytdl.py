@@ -13,6 +13,12 @@ import sys
 from core.cache import video_id_from_url, get_audio_path, save_metadata, load_metadata, exists
 from core.logging import get_logger
 
+try:
+    import yt_dlp  # noqa: F401 — check availability
+    _YTDLP_AVAILABLE = True
+except ImportError:
+    _YTDLP_AVAILABLE = False
+
 log = get_logger()
 
 
@@ -23,6 +29,13 @@ def download(url: str, force: bool = False) -> str:
     If the audio is already cached, skip the download unless force=True.
     Also saves video metadata (title, duration, etc.) alongside the audio.
     """
+    if not _YTDLP_AVAILABLE:
+        log.error("yt-dlp is not installed. Install it with: uv sync --extra youtube")
+        raise RuntimeError(
+            "yt-dlp is required to download from YouTube. "
+            "Install it with: uv sync --extra youtube"
+        )
+
     video_id = video_id_from_url(url)
     output_path = get_audio_path(video_id)
 

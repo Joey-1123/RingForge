@@ -102,10 +102,36 @@ def download(url, force):
 # ---------------------------------------------------------------------------
 
 @main.command()
-@_url_arg
-def info(url):
-    """Show metadata for a YouTube video."""
-    meta = ytdl.get_metadata(url)
+@click.argument("input")
+def info(input):
+    """Show metadata for an audio source.
+
+    INPUT can be a YouTube URL or a path to a local audio file.
+    """
+    is_local = os.path.isfile(input)
+
+    if is_local:
+        click.echo(f"File:      {os.path.abspath(input)}")
+        click.echo(f"Size:      {os.path.getsize(input):,} bytes")
+        try:
+            from analyzer.metadata import analyze_audio
+            analysis = analyze_audio(input)
+            click.echo("")
+            click.echo("--- Audio Analysis ---")
+            if analysis.get("tempo"):
+                click.echo(f"Tempo:     {analysis['tempo']:.1f} BPM")
+            if analysis.get("key"):
+                click.echo(f"Key:       {analysis['key']}")
+            if analysis.get("loudness") is not None:
+                click.echo(f"Loudness:  {analysis['loudness']:.1f} dB")
+            if analysis.get("duration"):
+                mins, secs = divmod(int(analysis["duration"]), 60)
+                click.echo(f"Duration:  {mins}m {secs}s")
+        except Exception:
+            pass
+        return
+
+    meta = ytdl.get_metadata(input)
     if not meta:
         click.echo("Could not fetch metadata.", err=True)
         sys.exit(1)
@@ -121,7 +147,7 @@ def info(url):
 
     # Show audio analysis if cached
     from core.cache import video_id_from_url, get_audio_path, exists
-    vid = video_id_from_url(url)
+    vid = video_id_from_url(input)
     if exists(vid):
         audio_path = get_audio_path(vid)
         try:
@@ -144,7 +170,7 @@ def info(url):
 # ---------------------------------------------------------------------------
 
 @main.command()
-@_url_arg
+@click.argument("input")
 @click.option("--mode", type=click.Choice(["manual", "heatmap", "auto", "notification"]),
               default="auto", help="Selection mode")
 @click.option("--profile", type=click.Choice(
@@ -154,31 +180,48 @@ def info(url):
 @_end_opt
 @_duration_opt
 @_force_opt
-def generate(url, mode, profile, start, end, duration, force):
+def generate(input, mode, profile, start, end, duration, force):
     """
-    Generate a ringtone from a YouTube URL.
+    Generate a ringtone from audio input.
+
+    INPUT can be a YouTube URL or a path to a local audio file.
+    Local files are analyzed directly; YouTube URLs are downloaded first.
 
     Modes:
       manual       - requires --start and --end or --duration
-      heatmap      - uses YouTube Most Replayed heatmap
+      heatmap      - uses YouTube Most Replayed heatmap (YouTube only)
       auto         - full AI scoring pipeline (default)
       notification - finds a short punchy segment (3-8s)
     """
     log = get_logger()
     cfg = load_config()
-    _log = log  # unused but available
+
+    # Detect input type: local file or YouTube URL
+    is_local = os.path.isfile(input)
 
     # Resolve profile
     if profile is None:
         profile = cfg.get("default_profile", "android")
 
-    # Step 1: Download if needed
-    audio_path = ytdl.download(url, force=force)
+    # Step 1: Get audio (download from YouTube or use local file)
+    if is_local:
+        audio_path = input
+        meta = None
+        real_vid = None
+        total_dur = None
+        if mode == "heatmap":
+            click.echo("Error: heatmap mode requires a YouTube URL.", err=True)
+            sys.exit(1)
+    else:
+        audio_path = ytdl.download(input, force=force)
+        meta = ytdl.get_metadata(input)
+        real_vid = meta.get("video_id") if meta else None
+        total_dur = meta.get("duration") if meta else None
 
     if mode == "manual":
         # Resolve times from CLI arguments
-        meta = ytdl.get_metadata(url)
-        total_dur = meta.get("duration") if meta else None
+        if not is_local and meta:
+            total_dur = meta.get("duration")
         s, e = _resolve_times(start, end, duration, total_dur)
 
         if s is None or e is None:
@@ -195,7 +238,7 @@ def generate(url, mode, profile, start, end, duration, force):
         # Step 2: Trim
         profile_cfg = cfg.get("profiles", {}).get(profile, {})
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-        output_name = f"ringtone_{os.path.basename(url)}_{int(s)}-{int(e)}.{ext}"
+        output_name = f"ringtone_{os.path.basename(input)}_{int(s)}-{int(e)}.{ext}"
         output_path = os.path.join(_exports_dir(), output_name)
 
         trimmed = trim(audio_path, s, e)
@@ -222,7 +265,11 @@ def generate(url, mode, profile, start, end, duration, force):
     elif mode == "heatmap":
         from analyzer.heatmap import fetch_heatmap, get_peak_segment
 
-        meta = ytdl.get_metadata(url)
+        if is_local:
+            click.echo("Error: heatmap mode requires a YouTube URL.", err=True)
+            sys.exit(1)
+
+        meta = ytdl.get_metadata(input)
         real_vid = meta.get("video_id") if meta else None
 
         # Fetch heatmap data using the real YouTube video ID
@@ -278,14 +325,16 @@ def generate(url, mode, profile, start, end, duration, force):
 
     elif mode == "notification":
         # notification mode: find short punchy segment (3-8s)
-        from analyzer.heatmap import fetch_heatmap
         from analyzer.scorer import compute_scores, find_nearest_beat, find_phrase_end
         from analyzer.beat import get_beat_times
 
-        meta = ytdl.get_metadata(url)
-        real_vid = meta.get("video_id") if meta else None
-        heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
-        total_dur = meta.get("duration") if meta else None
+        heatmap_markers = None
+        if not is_local:
+            from analyzer.heatmap import fetch_heatmap
+            meta = ytdl.get_metadata(input)
+            real_vid = meta.get("video_id") if meta else None
+            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+            total_dur = meta.get("duration") if meta else None
 
         candidates = compute_scores(
             audio_path,
@@ -306,7 +355,7 @@ def generate(url, mode, profile, start, end, duration, force):
         click.echo(f"Notification segment: {smart_s:.1f}s - {smart_e:.1f}s")
         profile_cfg = cfg.get("profiles", {}).get(profile, {})
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-        output_name = f"notification_{vid}_{int(smart_s)}-{int(smart_e)}.{ext}"
+        output_name = f"notification_{os.path.basename(input)}_{int(smart_s)}-{int(smart_e)}.{ext}"
         output_path = os.path.join(_exports_dir(), output_name)
 
         trimmed = trim(audio_path, smart_s, smart_e)
@@ -326,25 +375,24 @@ def generate(url, mode, profile, start, end, duration, force):
         click.echo(f"Exported notification: {output_path}")
 
     else:  # auto mode - run full scoring pipeline
-        from analyzer.heatmap import fetch_heatmap
         from analyzer.scorer import compute_scores
         from analyzer.beat import get_beat_times
 
-        meta = ytdl.get_metadata(url)
-        real_vid = meta.get("video_id") if meta else None
-
-        # Try to get heatmap data using the real YouTube video ID
-        heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+        heatmap_markers = None
+        if not is_local:
+            from analyzer.heatmap import fetch_heatmap
+            meta = ytdl.get_metadata(input)
+            real_vid = meta.get("video_id") if meta else None
+            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+            total_dur = meta.get("duration") if meta else None
 
         # Resolve duration
         if duration is None:
             duration = cfg.get("default_duration", 30)
 
-        total_dur = meta.get("duration") if meta else None
-
         # Run the unified scoring engine
         log = get_logger()
-        log.info("Running full scoring pipeline for %s", url)
+        log.info("Running full scoring pipeline for %s", input)
         candidates = compute_scores(
             audio_path,
             duration=duration,
@@ -386,7 +434,8 @@ def generate(url, mode, profile, start, end, duration, force):
 
         profile_cfg = cfg.get("profiles", {}).get(profile, {})
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-        output_name = f"ringtone_auto_{real_vid}_{int(smart_s)}-{int(smart_e)}.{ext}"
+        tag = real_vid or os.path.splitext(os.path.basename(input))[0]
+        output_name = f"ringtone_auto_{tag}_{int(smart_s)}-{int(smart_e)}.{ext}"
         output_path = os.path.join(_exports_dir(), output_name)
 
         trimmed = trim(audio_path, smart_s, smart_e)
@@ -412,16 +461,18 @@ def generate(url, mode, profile, start, end, duration, force):
 # ---------------------------------------------------------------------------
 
 @main.command()
-@_url_arg
+@click.argument("input")
 @_start_opt
 @_duration_opt
-def preview(url, start, duration):
+def preview(input, start, duration):
     """
     Preview a segment by playing it through the system audio.
 
+    INPUT can be a YouTube URL or a path to a local audio file.
     Requires the 'playsound' library or a system audio player.
     """
-    audio_path = ytdl.download(url)
+    is_local = os.path.isfile(input)
+    audio_path = input if is_local else ytdl.download(input)
 
     if start is None:
         start = 0.0

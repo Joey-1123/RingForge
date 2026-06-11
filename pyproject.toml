@@ -4,19 +4,25 @@ version = "0.1.0"
 description = "Find the best moment in any audio and export it as a ringtone, notification, or clip"
 requires-python = ">=3.12"
 dependencies = [
-    "yt-dlp>=2024.12.0",
     "pydub>=0.25.1",
     "librosa>=0.10.0",
     "click>=8.1.0",
     "soundfile>=0.12.1",
     "numpy>=1.26.0",
     "tomli>=2.0.0",
-    "requests>=2.31.0",
 ]
 
 [project.optional-dependencies]
+youtube = [
+    "yt-dlp>=2024.12.0",
+    "requests>=2.31.0",
+]
 gui = [
     "pyside6>=6.6.0",
+]
+all = [
+    "ringforge[youtube]",
+    "ringforge[gui]",
 ]
 dev = ["pytest>=9.0"]
 
