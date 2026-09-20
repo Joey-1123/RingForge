@@ -13,6 +13,7 @@ Provides commands:
 
 import os
 import sys
+import concurrent.futures
 
 import click
 
@@ -589,6 +590,86 @@ def export(input_path, profile_name, start, duration):
 # batch
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Batch parallel processing
+# ---------------------------------------------------------------------------
+
+def _process_batch_url(args: tuple) -> tuple[int, str, bool, str]:
+    """
+    Process a single URL in batch mode. Must be a module-level function
+    so it can be pickled by ProcessPoolExecutor.
+
+    Args:
+        args: Tuple of (url, index, mode, profile, duration, config_dict)
+
+    Returns:
+        (index, url, success, message)
+    """
+    url, i, mode, profile, duration, cfg_dict = args
+    import json
+    from downloader import ytdl
+    from audio.trim import trim
+    from audio.effects import apply_all
+    from analyzer.heatmap import fetch_heatmap
+    from analyzer._context import SignalContext
+    from analyzer.scorer import compute_scores, find_nearest_beat, find_phrase_end
+    from analyzer.beat import get_beat_times
+
+    output_dir = cfg_dict.get("_exports_dir", "exports")
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        audio_path = ytdl.download(url)
+
+        if mode == "manual":
+            return (i, url, False, "Skipped (manual mode)")
+
+        meta = ytdl.get_metadata(url)
+        real_vid = meta.get("video_id") if meta else None
+        heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+        total_dur = meta.get("duration") if meta else None
+
+        context = SignalContext(audio_path)
+        candidates = compute_scores(
+            audio_path,
+            duration=duration or cfg_dict.get("default_duration", 30),
+            heatmap_markers=heatmap_markers,
+            max_end=total_dur,
+            context=context,
+        )
+
+        if not candidates:
+            return (i, url, False, "No candidates found")
+
+        best = candidates[0]
+        s, e = best["start"], best["end"]
+        beat_times = context.beat_times
+        smart_s = find_nearest_beat(beat_times, s)
+        smart_e = find_phrase_end(beat_times, e)
+
+        profile_cfg = cfg_dict.get("profiles", {}).get(profile, {})
+        ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
+        seg_dur = int(smart_e - smart_s)
+        output_name = f"batch_{i:03d}_{real_vid}_{int(smart_s)}-{int(smart_e)}_{seg_dur}s.{ext}"
+        output_path = os.path.join(output_dir, output_name)
+
+        trimmed = trim(audio_path, smart_s, smart_e)
+        trimmed = apply_all(
+            trimmed,
+            do_normalize=cfg_dict.get("normalize", True),
+            do_fade=cfg_dict.get("fade", True),
+            do_bass=profile_cfg.get("bass_boost", False),
+            normalize_db=profile_cfg.get("normalize_db", -1.0),
+            fade_ms=profile_cfg.get("fade_ms", 200),
+        )
+        trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
+                       bitrate=profile_cfg.get("bitrate", "192k"))
+        return (i, url, True, f"Exported: {output_path}")
+
+    except Exception as exc:
+        return (i, url, False, str(exc))
+
+
 @main.command()
 @click.argument("input_file", type=click.Path(exists=True))
 @click.option("--mode", type=click.Choice(["manual", "heatmap", "auto", "notification"]),
@@ -604,6 +685,7 @@ def batch(input_file, mode, profile, duration, limit):
 
     INPUT_FILE: path to a text file with one YouTube URL per line.
     Blank lines and comments (lines starting with #) are ignored.
+    Uses ProcessPoolExecutor for parallel processing.
     """
     cfg = load_config()
     if profile is None:
@@ -632,70 +714,29 @@ def batch(input_file, mode, profile, duration, limit):
     success = 0
     failed = 0
 
-    for i, url in enumerate(urls, 1):
-        click.echo(f"[{i}/{len(urls)}] {url}")
-        try:
-            # Generate each URL
-            audio_path = ytdl.download(url)
+    # Prepare arguments for parallel processing
+    _exports_dir = os.path.join(os.path.dirname(__file__), "..", "exports")
+    cfg_dict = dict(cfg)
+    cfg_dict["_exports_dir"] = _exports_dir
 
-            if mode == "manual":
-                click.echo("  Skipping (manual mode requires start/end).")
-                continue
+    tasks = [
+        (url, i, mode, profile, duration, cfg_dict)
+        for i, url in enumerate(urls, 1)
+    ]
 
-            from analyzer.heatmap import fetch_heatmap
-            from analyzer._context import SignalContext
-            from analyzer.scorer import compute_scores, find_nearest_beat, find_phrase_end
-
-            meta = ytdl.get_metadata(url)
-            real_vid = meta.get("video_id") if meta else None
-            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
-            total_dur = meta.get("duration") if meta else None
-
-            context = SignalContext(audio_path)
-            candidates = compute_scores(
-                audio_path,
-                duration=duration or cfg.get("default_duration", 30),
-                heatmap_markers=heatmap_markers,
-                max_end=total_dur,
-                context=context,
-            )
-
-            if not candidates:
-                click.echo("  No candidates found.")
+    # Use ProcessPoolExecutor for parallel processing
+    max_workers = min(os.cpu_count() or 2, len(urls))
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_process_batch_url, task): task[1] for task in tasks}
+        for future in concurrent.futures.as_completed(futures):
+            i, url, ok, msg = future.result()
+            if ok:
+                click.echo(f"  [{i}/{len(urls)}] {url} — {msg}")
+                success += 1
+            else:
+                click.echo(f"  [{i}/{len(urls)}] {url} — FAILED: {msg}")
                 failed += 1
-                continue
-
-            best = candidates[0]
-            s, e = best["start"], best["end"]
-            beat_times = context.beat_times
-            smart_s = find_nearest_beat(beat_times, s)
-            smart_e = find_phrase_end(beat_times, e)
-
-            profile_cfg = cfg.get("profiles", {}).get(profile, {})
-            ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-            seg_dur = int(smart_e - smart_s)
-            output_name = f"batch_{i:03d}_{vid}_{int(smart_s)}-{int(smart_e)}_{seg_dur}s.{ext}"
-            output_path = os.path.join(_exports_dir(), output_name)
-
-            trimmed = trim(audio_path, smart_s, smart_e)
-            trimmed = apply_all(
-                trimmed,
-                do_normalize=cfg.get("normalize", True),
-                do_fade=cfg.get("fade", True),
-                do_bass=profile_cfg.get("bass_boost", False),
-                normalize_db=profile_cfg.get("normalize_db", -1.0),
-                fade_ms=profile_cfg.get("fade_ms", 200),
-            )
-            trimmed.export(output_path, format=profile_cfg.get("codec", "mp3"),
-                           bitrate=profile_cfg.get("bitrate", "192k"))
-
-            click.echo(f"  Exported: {output_path}")
-            success += 1
-
-        except Exception as e:
-            log.error("Failed to process %s: %s", url, e)
-            click.echo(f"  FAILED: {e}")
-            failed += 1
+                log.error("Failed to process %s: %s", url, msg)
 
     click.echo("")
     click.echo(f"Batch complete: {success} succeeded, {failed} failed.")
