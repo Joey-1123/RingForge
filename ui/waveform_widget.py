@@ -2,15 +2,27 @@ from PySide6.QtCore import Qt, QRectF, Signal, QPointF
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPixmap
 from PySide6.QtWidgets import QWidget
 
-COLOR_BG = QColor("#1e1e2e")
-COLOR_WAVEFORM = QColor("#89b4fa")
-COLOR_CANDIDATE = QColor("#a6e3a1")
-COLOR_CANDIDATE_FILL = QColor(166, 227, 161, 60)
-COLOR_SELECTED = QColor("#f9e2af")
-COLOR_SELECTED_FILL = QColor(249, 226, 175, 80)
-COLOR_TEXT = QColor("#cdd6f4")
-COLOR_CURSOR = QColor("#f38ba8")
-COLOR_HANDLE = QColor("#f9e2af")
+from core.tokens import (
+    COLOR_BG, COLOR_WAVEFORM, COLOR_CANDIDATE, COLOR_SELECTED,
+    COLOR_TEXT, COLOR_CURSOR, COLOR_HANDLE, HANDLE_WIDTH,
+    ZOOM_MIN, ZOOM_MAX, ZOOM_STEP,
+    FONT_SIZE_BASE, FONT_SIZE_SMALL, BRAND_PRIMARY,
+    TARGET_MIN_SIZE, ANIM_FAST, ANIM_NORMAL,
+    RADIUS_SM, BG_PRIMARY,
+    WAVEFORM_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH,
+)
+
+# QColor instances from tokens (created once for performance)
+_QCOLOR_BG = QColor(COLOR_BG)
+_QCOLOR_WAVEFORM = QColor(COLOR_WAVEFORM)
+_QCOLOR_CANDIDATE = QColor(COLOR_CANDIDATE)
+_QCOLOR_CANDIDATE_FILL = QColor(166, 227, 161, 60)
+_QCOLOR_SELECTED = QColor(COLOR_SELECTED)
+_QCOLOR_SELECTED_FILL = QColor(249, 226, 175, 80)
+_QCOLOR_TEXT = QColor(COLOR_TEXT)
+_QCOLOR_CURSOR = QColor(COLOR_CURSOR)
+_QCOLOR_HANDLE = QColor(COLOR_HANDLE)
+_QCOLOR_HOVER = QColor(245, 194, 231)  # hover line color
 HANDLE_WIDTH = 8
 ZOOM_MIN = 1.0
 ZOOM_MAX = 50.0
@@ -24,7 +36,8 @@ class WaveformWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumHeight(150)
+        self.setMinimumHeight(WAVEFORM_MIN_HEIGHT)
+        self.setMinimumWidth(MAIN_WINDOW_MIN_WIDTH)
         self.setMouseTracking(True)
 
         self._samples = []
@@ -136,7 +149,7 @@ class WaveformWidget(QWidget):
 
         # Time labels
         painter.setPen(COLOR_TEXT)
-        font = QFont("monospace", 8)
+        font = QFont(FONT_SIZE_BASE, QFont.Weight.Normal)
         painter.setFont(font)
         visible_range = ve - vs
         num_labels = max(2, int(visible_range / 15))
