@@ -24,7 +24,22 @@ from PySide6.QtWidgets import (
 from core.logging import get_logger, setup as setup_logging
 from core.config import load as load_config, save as save_config, get_defaults, get_weights, get_profile
 from core.waveform import extract_waveform
-from core.tokens import token_stylesheet, FONT_SIZE_LARGE, FONT_SIZE_BASE, FONT_SIZE_SMALL, BRAND_PRIMARY, FOCUS_RING, TARGET_MIN_SIZE, SHORTCUTS, SPACING_SM, SPACING_MD, RADIUS_MD
+from core.tokens import (
+    token_stylesheet,
+    FONT_SIZE_LARGE, FONT_SIZE_BASE, FONT_SIZE_SMALL, FONT_SIZE_2XL,
+    BRAND_PRIMARY, FOCUS_RING, TARGET_MIN_SIZE, SHORTCUTS,
+    SPACING_SM, SPACING_MD, SPACING_LG, SPACING_XL,
+    RADIUS_MD, ANIM_FAST, ANIM_NORMAL, ANIM_MODAL,
+    WAVEFORM_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH,
+    get_reduced_motion,
+)
+from ui.theme.animation import PressFeedbackButton, SkeletonWidget, create_fade_in, create_slide_in, create_stagger_animation
+from ui.theme.icon_system import Icon, IconButton
+from ui.empty_state import EmptyState, NoCandidatesEmpty, NoBatchEmpty, ErrorBanner
+from ui.dialogs.confirmation import (
+    confirm, confirm_export, confirm_batch_cancel, confirm_overwrite,
+    create_shortcut_hints, show_status_fade,
+)
 from downloader import ytdl
 from audio.trim import trim
 from audio.effects import apply_all
@@ -379,13 +394,13 @@ class RingForgeWindow(QMainWindow):
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(8)
+        main_layout.setContentsMargins(SPACING_LG, SPACING_LG, SPACING_LG, SPACING_LG)
+        main_layout.setSpacing(SPACING_MD)
 
         # ---- Top bar: URL input + action buttons ----
         top_bar = QHBoxLayout()
 
-        self._open_btn = QPushButton("Open File")
+        self._open_btn = PressFeedbackButton("Open File")
         self._open_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._open_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._open_btn.setAccessibleName("Open Audio File")
@@ -403,7 +418,7 @@ class RingForgeWindow(QMainWindow):
         self._url_input.setToolTip("Enter a YouTube URL or local file path, then press Enter to analyze")
         self._url_input.returnPressed.connect(self._on_download)
 
-        self._download_btn = QPushButton("Find Best Moment")
+        self._download_btn = PressFeedbackButton("Find Best Moment")
         self._download_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._download_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._download_btn.setAccessibleName("Find Best Moment")
@@ -411,7 +426,7 @@ class RingForgeWindow(QMainWindow):
         self._download_btn.setToolTip("Download and analyze the audio for highlight candidates")
         self._download_btn.clicked.connect(self._on_download)
 
-        self._batch_btn = QPushButton("Batch Process")
+        self._batch_btn = PressFeedbackButton("Batch Process")
         self._batch_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._batch_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._batch_btn.setAccessibleName("Batch Process")
@@ -419,7 +434,7 @@ class RingForgeWindow(QMainWindow):
         self._batch_btn.setToolTip("Open the batch processing dialog to queue multiple files")
         self._batch_btn.clicked.connect(self._on_open_batch)
 
-        self._prefs_btn = QPushButton("Preferences")
+        self._prefs_btn = PressFeedbackButton("Preferences")
         self._prefs_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._prefs_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._prefs_btn.setAccessibleName("Preferences")
@@ -454,7 +469,7 @@ class RingForgeWindow(QMainWindow):
         self._waveform.candidate_modified.connect(self._on_candidate_modified)
 
         controls = QHBoxLayout()
-        self._play_btn = QPushButton("Play")
+        self._play_btn = PressFeedbackButton("Play")
         self._play_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._play_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._play_btn.setAccessibleName("Play")
@@ -463,7 +478,7 @@ class RingForgeWindow(QMainWindow):
         self._play_btn.setToolTip("Play/pause the preview segment (Space)")
         self._play_btn.clicked.connect(self._on_play_pause)
 
-        self._stop_btn = QPushButton("Stop")
+        self._stop_btn = PressFeedbackButton("Stop")
         self._stop_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._stop_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._stop_btn.setAccessibleName("Stop")
@@ -510,8 +525,12 @@ class RingForgeWindow(QMainWindow):
         candidates_layout = QVBoxLayout(candidates_tab)
 
         candidate_label = QLabel("Top Candidates")
-        candidate_label.setFont(QFont("sans-serif", 12, QFont.Weight.Bold))
+        candidate_label.setFont(QFont(FONT_SIZE_LARGE, QFont.Weight.Bold))
         candidates_layout.addWidget(candidate_label)
+
+        # Skeleton placeholder shown during analysis
+        self._skeleton = SkeletonWidget(candidates_tab, rows=5, height=44)
+        candidates_layout.addWidget(self._skeleton)
 
         self._candidate_list = QListWidget()
         self._candidate_list.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -536,7 +555,7 @@ class RingForgeWindow(QMainWindow):
         profile_row.addWidget(self._profile_combo, 1)
         export_layout.addLayout(profile_row)
 
-        self._export_btn = QPushButton("Export Selected")
+        self._export_btn = PressFeedbackButton("Export Selected")
         self._export_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._export_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._export_btn.setAccessibleName("Export Selected")
@@ -546,7 +565,7 @@ class RingForgeWindow(QMainWindow):
         self._export_btn.clicked.connect(self._on_export)
         export_layout.addWidget(self._export_btn)
 
-        self._open_exports_btn = QPushButton("Open Exports Folder")
+        self._open_exports_btn = PressFeedbackButton("Open Exports Folder")
         self._open_exports_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._open_exports_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._open_exports_btn.setAccessibleName("Open Exports Folder")
@@ -554,6 +573,10 @@ class RingForgeWindow(QMainWindow):
         self._open_exports_btn.setToolTip("Open the exports directory in your file manager")
         self._open_exports_btn.clicked.connect(self._on_open_exports)
         export_layout.addWidget(self._open_exports_btn)
+
+        # Hide skeleton initially, show candidate list
+        self._skeleton.hide()
+        self._candidate_list.show()
 
         candidates_layout.addWidget(export_frame)
         self._right_tabs.addTab(candidates_tab, "Candidates")
@@ -589,7 +612,7 @@ class RingForgeWindow(QMainWindow):
         self._manual_end.valueChanged.connect(self._update_manual_btn_state)
 
         manual_btn_row = QHBoxLayout()
-        self._manual_preview_btn = QPushButton("Preview")
+        self._manual_preview_btn = PressFeedbackButton("Preview")
         self._manual_preview_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._manual_preview_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._manual_preview_btn.setAccessibleName("Preview")
@@ -599,7 +622,7 @@ class RingForgeWindow(QMainWindow):
         self._manual_preview_btn.clicked.connect(self._on_manual_preview)
         manual_btn_row.addWidget(self._manual_preview_btn)
 
-        self._manual_export_btn = QPushButton("Save Ringtone As...")
+        self._manual_export_btn = PressFeedbackButton("Save Ringtone As...")
         self._manual_export_btn.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self._manual_export_btn.setMinimumSize(TARGET_MIN_SIZE, TARGET_MIN_SIZE)
         self._manual_export_btn.setAccessibleName("Save Ringtone As")
@@ -622,12 +645,46 @@ class RingForgeWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         main_layout.addWidget(splitter, 1)
 
+        # ─── Empty state overlay (added to layout) ───
+        main_layout.addWidget(self._empty_state)
+        self._empty_state.setVisible(False)
+
+        # ─── Error banner (added to layout) ───
+        main_layout.addWidget(self._error_banner)
+        self._error_banner.hide()
+
         # Status bar
         self._status = QStatusBar()
         self._status.setAccessibleName("Status")
         self._status.setAccessibleDescription("Current application status and messages")
         self.setStatusBar(self._status)
         self._status.showMessage("Ready")
+
+        # ─── Keyboard shortcuts ───
+        self._init_shortcuts()
+
+        # ─── Reduced motion ───
+        self._reduced_motion = get_reduced_motion()
+
+    def _init_shortcuts(self):
+        """Register keyboard shortcuts."""
+        from core.tokens import SHORTCUTS
+        from PySide6.QtGui import QShortcut, QKeySequence
+
+        shortcut_map = {
+            "play_pause": self._on_play_pause,
+            "stop": self._on_stop,
+            "seek_forward": lambda: self._waveform.seek_relative(1),
+            "seek_backward": lambda: self._waveform.seek_relative(-1),
+            "export": self._on_export,
+            "open_file": self._on_open_file,
+            "quit": self.close,
+        }
+
+        for action, handler in shortcut_map.items():
+            keys = SHORTCUTS.get(action, "")
+            if keys:
+                QShortcut(QKeySequence(keys), self, handler)
 
     def _init_player(self):
         """Set up the audio player and position timer."""
@@ -710,6 +767,8 @@ class RingForgeWindow(QMainWindow):
         )
         if path:
             self._url_input.setText(path)
+            self._empty_state.setVisible(False)
+            self._error_banner.hide_error()
             self._on_download()
 
     def _on_open_exports(self):
@@ -753,6 +812,11 @@ class RingForgeWindow(QMainWindow):
         self._manual_preview_btn.setEnabled(False)
         self._manual_export_btn.setEnabled(False)
 
+        # Show skeleton, hide candidate list during analysis
+        self._candidate_list.hide()
+        self._skeleton.show()
+        self._skeleton.start()
+
         if self._worker:
             self._worker.cancel()
         if self._thread:
@@ -783,6 +847,16 @@ class RingForgeWindow(QMainWindow):
         self._progress.setVisible(False)
         self._download_btn.setEnabled(True)
 
+        # Hide skeleton, show candidate list with stagger animation
+        self._skeleton.stop()
+        self._candidate_list.show()
+        create_stagger_animation(
+            [self._candidate_list],
+            direction="left",
+            duration=ANIM_NORMAL,
+            stagger_ms=100,
+        )
+
         dur = waveform_data.get("duration", 0)
         self._waveform.set_waveform(
             waveform_data.get("samples", []),
@@ -810,27 +884,31 @@ class RingForgeWindow(QMainWindow):
         self._manual_end.setValue(min(dur, 30))
         self._update_manual_btn_state()
 
-        # Show file info in status bar
-        try:
-            from pydub import AudioSegment
-            seg = AudioSegment.from_file(self._audio_path)
-            sr = seg.frame_rate
-            ch = seg.channels
-            self._status.showMessage(
-                f"Loaded {dur:.0f}s audio ({ch}ch, {sr}Hz) with "
-                f"{len(candidates)} candidates"
-            )
-        except Exception:
-            self._status.showMessage(
-                f"Loaded {dur:.0f}s audio with {len(candidates)} candidates"
-            )
+        # Handle empty candidates
+        if not candidates:
+            self._candidate_list.hide()
+            self._empty_state.setVisible(False)
+            self._empty_state = NoCandidatesEmpty()
+            self._empty_state.setVisible(True)
+            self._status.showMessage("No candidates found")
+        else:
+            self._candidate_list.show()
+            self._empty_state.setVisible(False)
+            show_status_fade(self._status, f"Found {len(candidates)} candidates")
 
     def _on_download_error(self, error_msg):
-        """Show error message."""
+        """Show error using styled error banner."""
         self._progress.setVisible(False)
         self._download_btn.setEnabled(True)
+        self._skeleton.stop()
+        self._candidate_list.hide()
+        self._empty_state.setVisible(False)
+        self._error_banner.show_error(
+            f"Failed to analyze: {error_msg}",
+            retry_callback=self._on_download,
+        )
+        show_status_fade(self._status, "Error", timeout=5000)
         QMessageBox.critical(self, "Download Error", error_msg)
-        self._status.showMessage("Error")
 
     def _on_candidate_selected(self, row):
         """Highlight the selected candidate on the waveform."""
@@ -1030,6 +1108,11 @@ class RingForgeWindow(QMainWindow):
         except Exception as e:
             log.error("Export failed: %s", e)
             QMessageBox.critical(self, "Export Error", str(e))
+
+    def _on_retry_error(self):
+        """Retry the last download after an error."""
+        self._error_banner.hide_error()
+        self._on_download()
 
     def _on_export(self):
         """Export the selected candidate with Save As dialog."""
