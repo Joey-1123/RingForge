@@ -16,7 +16,7 @@ import json
 import re
 import time
 
-from core.cache import video_id_from_url, save_heatmap, load_heatmap
+from core.cache import cache_key_from_url, save_heatmap, load_heatmap
 from core.logging import get_logger
 
 try:

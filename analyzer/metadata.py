@@ -6,6 +6,7 @@ and loudness from the downloaded audio file.
 """
 
 import librosa
+import numpy as np
 
 from core.logging import get_logger
 
@@ -79,7 +80,7 @@ _PITCH_NAMES = ["C", "C#", "D", "D#", "E", "F",
                 "F#", "G", "G#", "A", "A#", "B"]
 
 
-def _estimate_key(chroma: librosa.feature.Chroma) -> str:
+def _estimate_key(chroma: np.ndarray) -> str:
     """
     Estimate the musical key from a chromagram.
 

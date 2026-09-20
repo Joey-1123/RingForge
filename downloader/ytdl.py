@@ -10,7 +10,7 @@ import os
 import subprocess
 import sys
 
-from core.cache import video_id_from_url, get_audio_path, save_metadata, load_metadata, exists
+from core.cache import cache_key_from_url, get_audio_path, save_metadata, load_metadata, exists, _validate_youtube_url
 from core.logging import get_logger
 
 try:
@@ -36,7 +36,7 @@ def download(url: str, force: bool = False) -> str:
             "Install it with: uv sync --extra youtube"
         )
 
-    video_id = video_id_from_url(url)
+    video_id = cache_key_from_url(url)
     output_path = get_audio_path(video_id)
 
     if exists(video_id) and not force:
@@ -102,7 +102,7 @@ def get_metadata(url: str) -> dict | None:
     Checks cache first — if download() was called before this,
     returns cached data without spawning another yt-dlp subprocess.
     """
-    video_id = video_id_from_url(url)
+    video_id = cache_key_from_url(url)
     cached = load_metadata(video_id)
     if cached:
         return cached

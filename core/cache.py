@@ -12,14 +12,29 @@ Structures:
 import json
 import os
 import hashlib
+import re
+from urllib.parse import urlparse
 
 _CACHE_ROOT = os.path.join(os.path.dirname(__file__), "..", "cache")
+
+# Allowed YouTube hosts for SSRF prevention
+_ALLOWED_YOUTUBE_HOSTS = {"youtube.com", "youtu.be", "www.youtube.com"}
+
+
+def _validate_youtube_url(url: str) -> str:
+    """Validate that a URL points to YouTube. Raises ValueError on invalid host."""
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise ValueError(f"URL must use https scheme, got: {parsed.scheme}")
+    if parsed.hostname not in _ALLOWED_YOUTUBE_HOSTS:
+        raise ValueError(f"URL host must be youtube.com or youtu.be, got: {parsed.hostname}")
+    return url
 
 
 def _ensure_dir(video_id: str) -> str:
     """Create and return the cache directory for a given video ID."""
     path = os.path.join(_CACHE_ROOT, video_id)
-    os.makedirs(path, exist_ok=True)
+    os.makedirs(path, mode=0o700, exist_ok=True)
     return path
 
 
@@ -36,7 +51,7 @@ def cache_key_from_path(file_path: str) -> str:
 
 
 def video_id_from_url(url: str) -> str:
-    """Deprecated alias for cache_key_from_url."""
+    """Use cache_key_from_url instead."""
     return cache_key_from_url(url)
 
 

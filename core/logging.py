@@ -29,7 +29,7 @@ def setup(level: str = "INFO"):
     file_handler.setFormatter(_JSONFormatter())
 
     # Console handler: simple human-readable format
-    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler = logging.StreamHandler(sys.stderr)
     console_handler.setFormatter(logging.Formatter("%(levelname)s  %(message)s"))
 
     _root = logging.getLogger("ringforge")

@@ -2,9 +2,16 @@
 
 ## Reporting a Vulnerability
 
-Report bugs and security issues by opening a public issue on GitHub
+Report security issues by email to **security@ringforge.dev** or via
+GitHub Security Advisories (private). Do not open a public issue
+for active vulnerabilities.
 
-## Supported Versions
+### Public Disclosure
+
+After a patch is released, the issue may be disclosed publicly per
+the 90-day coordinated disclosure window described below.
+
+### Supported Versions
 
 Only the most recent tagged release receives security patches. There is
 no backport policy for older versions.

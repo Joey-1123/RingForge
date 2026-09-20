@@ -49,6 +49,25 @@ _force_opt = click.option("--force", is_flag=True, default=False,
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _validate_file_path(input_path: str) -> str:
+    """Validate a local file path is safe and exists."""
+    if not os.path.isfile(input_path):
+        raise FileNotFoundError(f"Audio file not found: {input_path}")
+    abs_path = os.path.abspath(input_path)
+    # Prevent path traversal - ensure path is within project or absolute
+    if not abs_path.startswith(os.getcwd()):
+        raise ValueError(
+            f"File path must be within the project directory: {input_path}"
+        )
+    return abs_path
+
+
+def _validate_url(url: str) -> str:
+    """Validate a URL is safe for processing."""
+    from core.cache import _validate_youtube_url
+    return _validate_youtube_url(url)
+
+
 def _resolve_times(start, end, duration, total_duration):
     """
     Convert CLI time arguments to (start, end) in seconds.
@@ -210,19 +229,15 @@ def generate(input, mode, profile, start, end, duration, force):
     if profile is None:
         profile = cfg.get("default_profile", "android")
 
-    # Step 1: Get audio (download from YouTube or use local file)
+    # Step 1: Validate input and get audio
     if is_local:
+        _validate_file_path(input)
         audio_path = input
-        meta = None
-        real_vid = None
-        total_dur = None
-        if mode == "heatmap":
-            click.echo("Error: heatmap mode requires a YouTube URL.", err=True)
-            sys.exit(1)
     else:
+        _validate_url(input)
         audio_path = ytdl.download(input, force=force)
         meta = ytdl.get_metadata(input)
-        real_vid = meta.get("video_id") if meta else None
+        video_id = meta.get("video_id") if meta else None
         total_dur = meta.get("duration") if meta else None
 
     if mode == "manual":
@@ -277,10 +292,10 @@ def generate(input, mode, profile, start, end, duration, force):
             sys.exit(1)
 
         meta = ytdl.get_metadata(input)
-        real_vid = meta.get("video_id") if meta else None
+        video_id = meta.get("video_id") if meta else None
 
         # Fetch heatmap data using the real YouTube video ID
-        markers = fetch_heatmap(real_vid) if real_vid else None
+        markers = fetch_heatmap(video_id) if video_id else None
         if markers is None:
             click.echo(
                 "Heatmap data is not available for this video. "
@@ -308,7 +323,7 @@ def generate(input, mode, profile, start, end, duration, force):
 
         # Trim
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-        output_name = f"ringtone_heatmap_{real_vid}_{int(s)}-{int(e)}.{ext}"
+        output_name = f"ringtone_heatmap_{video_id}_{int(s)}-{int(e)}.{ext}"
         output_path = os.path.join(_exports_dir(), output_name)
 
         trimmed = trim(audio_path, s, e)
@@ -339,8 +354,8 @@ def generate(input, mode, profile, start, end, duration, force):
         if not is_local:
             from analyzer.heatmap import fetch_heatmap
             meta = ytdl.get_metadata(input)
-            real_vid = meta.get("video_id") if meta else None
-            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+            video_id = meta.get("video_id") if meta else None
+            heatmap_markers = fetch_heatmap(video_id) if video_id else None
             total_dur = meta.get("duration") if meta else None
 
         context = SignalContext(audio_path)
@@ -391,8 +406,8 @@ def generate(input, mode, profile, start, end, duration, force):
         if not is_local:
             from analyzer.heatmap import fetch_heatmap
             meta = ytdl.get_metadata(input)
-            real_vid = meta.get("video_id") if meta else None
-            heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+            video_id = meta.get("video_id") if meta else None
+            heatmap_markers = fetch_heatmap(video_id) if video_id else None
             total_dur = meta.get("duration") if meta else None
 
         # Load audio once into shared context
@@ -447,7 +462,7 @@ def generate(input, mode, profile, start, end, duration, force):
 
         profile_cfg = cfg.get("profiles", {}).get(profile, {})
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
-        tag = real_vid or os.path.splitext(os.path.basename(input))[0]
+        tag = video_id or os.path.splitext(os.path.basename(input))[0]
         output_name = f"ringtone_auto_{tag}_{int(smart_s)}-{int(smart_e)}.{ext}"
         output_path = os.path.join(_exports_dir(), output_name)
 
@@ -630,10 +645,10 @@ def _process_batch_url(args: tuple) -> tuple[int, str, bool, str]:
             return (i, url, False, "Skipped (manual mode)")
 
         meta = ytdl.get_metadata(url)
-        real_vid = meta.get("video_id") if meta else None
-        if real_vid is None:
-            real_vid = os.path.splitext(os.path.basename(url))[0]
-        heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
+        video_id = meta.get("video_id") if meta else None
+        if video_id is None:
+            video_id = os.path.splitext(os.path.basename(url))[0]
+        heatmap_markers = fetch_heatmap(video_id) if video_id else None
         total_dur = meta.get("duration") if meta else None
 
         context = SignalContext(audio_path)
@@ -657,7 +672,7 @@ def _process_batch_url(args: tuple) -> tuple[int, str, bool, str]:
         profile_cfg = cfg_dict.get("profiles", {}).get(profile, {})
         ext = profile_cfg.get("extension", profile_cfg.get("codec", "mp3"))
         seg_dur = int(smart_e - smart_s)
-        output_name = f"batch_{i:03d}_{real_vid}_{int(smart_s)}-{int(smart_e)}_{seg_dur}s.{ext}"
+        output_name = f"batch_{i:03d}_{video_id}_{int(smart_s)}-{int(smart_e)}_{seg_dur}s.{ext}"
         output_path = os.path.join(output_dir, output_name)
 
         trimmed = trim(audio_path, smart_s, smart_e)

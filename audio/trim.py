@@ -5,11 +5,22 @@ Provides functions to cut a segment from an audio file by start/end times
 (in seconds). Wraps pydub for the heavy lifting.
 """
 
+import os
+
 from pydub import AudioSegment
 
 from core.logging import get_logger
 
 log = get_logger()
+
+
+def _validate_audio_path(input_path: str) -> str:
+    """Validate that the audio file exists and is a local file."""
+    if not input_path:
+        raise ValueError("input_path cannot be empty")
+    if not os.path.isfile(input_path):
+        raise FileNotFoundError(f"Audio file not found: {input_path}")
+    return os.path.abspath(input_path)
 
 
 def trim(input_path: str, start: float, end: float, output_path: str | None = None) -> AudioSegment:
@@ -26,6 +37,7 @@ def trim(input_path: str, start: float, end: float, output_path: str | None = No
         The trimmed AudioSegment (in memory).
     """
     log.info("Trimming %s from %.2fs to %.2fs", input_path, start, end)
+    _validate_audio_path(input_path)
     audio = AudioSegment.from_file(input_path)
 
     start_ms = int(start * 1000)

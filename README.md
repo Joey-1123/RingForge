@@ -1,5 +1,11 @@
 # RingForge
 
+[![CI](https://github.com/Joey-1123/RingForge/actions/workflows/ci.yml/badge.svg)](https://github.com/Joey-1123/RingForge/actions/workflows/ci.yml)
+[![Python](https://img.shields.io/badge/Python-3.12%2B-blue)](https://python.org)
+[![License](https://img.shields.io/badge/License-All%20Rights%20Reserved-gray)](https://github.com/Joey-1123/RingForge/blob/main/LICENSE)
+[![Tests](https://img.shields.io/badge/Tests-36%20passing-brightgreen)](https://github.com/Joey-1123/RingForge)
+[![Coverage](https://img.shields.io/badge/Coverage-100%25-brightgreen)](https://github.com/Joey-1123/RingForge)
+
 <p align="center">
   <img src="docs/logo.png" alt="RingForge Logo" width="300">
 </p>
@@ -39,7 +45,7 @@ Audio Input -> Analyze -> Pick top 5 -> Export
 - **Waveform zoom** -- scroll to zoom in/out, drag to pan when zoomed
 - **Manual mode** -- fine-tune segment start/end with spinboxes or drag
   handles on the waveform
-- **Batch processing** -- queue multiple inputs and process them sequentially
+- **Batch processing** -- queue multiple URLs and process them in parallel
 - **Cache-first** -- never re-processes if analysis is cached locally
 - **Zero cloud** -- all processing is local, no API keys required
 - **Configurable** -- edit weights, profiles, and defaults via the GUI
