@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QRectF, Signal, QPointF
+from PySide6.QtCore import Qt, QRectF, Signal, QPointF, QTimer
 from PySide6.QtGui import QPainter, QColor, QPen, QBrush, QFont, QPixmap
 from PySide6.QtWidgets import QWidget
 
@@ -11,6 +11,7 @@ from core.tokens import (
     RADIUS_SM, BG_PRIMARY,
     WAVEFORM_MIN_HEIGHT, MAIN_WINDOW_MIN_WIDTH,
 )
+from ui.theme.performance import LRUCache, DirtyRegionRenderer, PerformanceMonitor
 
 # QColor instances from tokens (created once for performance)
 _QCOLOR_BG = QColor(COLOR_BG)
@@ -39,7 +40,9 @@ class WaveformWidget(QWidget):
         self.setMinimumHeight(WAVEFORM_MIN_HEIGHT)
         self.setMinimumWidth(MAIN_WINDOW_MIN_WIDTH)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
+        # State
         self._samples = []
         self._duration = 0.0
         self._candidates = []
@@ -47,8 +50,16 @@ class WaveformWidget(QWidget):
         self._play_position = -1.0
         self._hover_time = -1.0
 
-        self._cache = QPixmap()
-        self._cache_dirty = True
+        # Performance — LRU cache for rendered segments
+        self._lru_cache = LRUCache(max_size=10)
+        self._dirty_region = DirtyRegionRenderer()
+        self._perf_monitor = PerformanceMonitor(target_fps=60)
+        self._render_timer = QTimer(self)
+        self._render_timer.setSingleShot(True)
+        self._render_timer.setInterval(ANIM_FAST)
+        self._render_timer.timeout.connect(self._schedule_render)
+
+        # Interaction
         self._drag_handle = None
         self._drag_start_time = 0.0
         self._panning = False
@@ -134,7 +145,7 @@ class WaveformWidget(QWidget):
             return
 
         self._cache = QPixmap(w, h)
-        self._cache.fill(COLOR_BG)
+        self._cache.fill(_QCOLOR_BG)
 
         painter = QPainter(self._cache)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -226,16 +237,16 @@ class WaveformWidget(QWidget):
 
         if self._play_position >= 0:
             cx = self._time_to_x(self._play_position)
-            painter.setPen(QPen(COLOR_CURSOR, 2))
+            painter.setPen(QPen(_QCOLOR_CURSOR, 2))
             painter.drawLine(cx, 10, cx, baseline_y)
 
         if self._hover_time >= 0:
             hx = self._time_to_x(self._hover_time)
-            painter.setPen(QPen(QColor("#f5c2e7"), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(_QCOLOR_HOVER, 1, Qt.PenStyle.DashLine))
             painter.drawLine(hx, 10, hx, baseline_y)
             mins, secs = divmod(int(self._hover_time), 60)
             text = f"{mins}:{secs:02d}"
-            painter.setPen(COLOR_TEXT)
+            painter.setPen(_QCOLOR_TEXT)
             painter.drawText(QRectF(hx - 20, 0, 40, 12),
                              Qt.AlignmentFlag.AlignCenter, text)
 

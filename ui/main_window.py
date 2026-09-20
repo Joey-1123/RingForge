@@ -489,7 +489,7 @@ class RingForgeWindow(QMainWindow):
 
         self._volume_slider = QSlider(Qt.Orientation.Horizontal)
         self._volume_slider.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self._volume_slider.setMinimumSize(SLIDER_MIN_SIZE if 'SLIDER_MIN_SIZE' in dir() else (120, 24))
+        self._volume_slider.setMinimumSize(120, 24)
         self._volume_slider.setAccessibleName("Volume")
         self._volume_slider.setAccessibleDescription("Adjust playback volume")
         self._volume_slider.setRange(0, 100)

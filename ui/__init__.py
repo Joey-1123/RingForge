@@ -5,7 +5,7 @@ Provides design tokens, stylesheets, animations, icons,
 empty states, and component factories for the PySide6 desktop application.
 """
 
-from core.tokens import (
+from ui.theme import (
     token_stylesheet,
     BRAND_PRIMARY, BRAND_ACCENT, BRAND_SUCCESS, BRAND_DANGER, BRAND_WARNING,
     BG_PRIMARY, BG_SECONDARY, BG_SURFACE, BG_SURFACE_HOVER, BG_SURFACE_PRESSED,
@@ -17,6 +17,11 @@ from core.tokens import (
     TARGET_MIN_SIZE, SPACING_SM, SPACING_MD, SPACING_LG, SPACING_XL,
     RADIUS_SM, RADIUS_MD, RADIUS_LG, SHORTCUTS,
     WAVEFORM_LAYERS, get_reduced_motion,
+    # Performance
+    LRUCache, DirtyRegionRenderer, ProgressiveRenderer,
+    PerformanceMonitor, profile_memory, UndoManager,
+    # Design Audit
+    RingForgeAuditor,
 )
 from ui.theme.animation import PressFeedbackButton, SkeletonWidget, create_fade_in, create_slide_in, create_stagger_animation
 from ui.theme.icon_system import Icon, IconButton, ICON_MAP
@@ -45,4 +50,9 @@ __all__ = [
     # Dialogs
     "confirm", "confirm_export", "confirm_batch_cancel", "confirm_overwrite",
     "create_shortcut_hints", "show_status_fade",
+    # Performance
+    "LRUCache", "DirtyRegionRenderer", "ProgressiveRenderer",
+    "PerformanceMonitor", "profile_memory", "UndoManager",
+    # Design Audit
+    "RingForgeAuditor",
 ]
