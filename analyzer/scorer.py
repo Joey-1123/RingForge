@@ -4,12 +4,15 @@ Unified scoring engine for RingForge.
 Combines signals from all analyzers (heatmap, energy, repetition, beat,
 novelty) into a single weighted score per candidate window.
 
+Uses SignalContext to avoid redundant audio loading.
+
 Produces the top-5 best segments with human-readable labels explaining
 why each was chosen.
 """
 
 import numpy as np
 
+from analyzer._context import SignalContext
 from core.config import get_weights, load as load_config
 from core.logging import get_logger
 
@@ -20,7 +23,8 @@ def compute_scores(audio_path: str,
                    duration: float | None = None,
                    heatmap_markers: list[dict] | None = None,
                    min_start: float = 0.0,
-                   max_end: float | None = None) -> list[dict]:
+                   max_end: float | None = None,
+                   context: SignalContext | None = None) -> list[dict]:
     """
     Run all analyzers, score all candidate windows, and return the top
     candidates sorted by score.
@@ -31,6 +35,7 @@ def compute_scores(audio_path: str,
         heatmap_markers: Heatmap data from analyzer.heatmap.fetch_heatmap()
         min_start: Earliest allowed start time
         max_end: Latest allowed end time
+        context: Optional pre-loaded SignalContext. If None, one is created.
 
     Returns:
         List of candidate dicts sorted by final_score descending, each with:
@@ -45,14 +50,14 @@ def compute_scores(audio_path: str,
     if duration is None:
         duration = cfg.get("default_duration", 30.0)
 
-    # Determine which sliding window sizes to try
-    window_candidates = cfg.get("sliding_window", {}).get("candidates", [20, 25, 30, 35, 40])
-    search_radius = cfg.get("sliding_window", {}).get("search_radius", 10)
+    # Create or reuse shared signal context — loads audio exactly once
+    if context is None:
+        context = SignalContext(audio_path)
 
-    # Load audio for analysis
-    import librosa
-    y, sr = librosa.load(audio_path, sr=None, mono=True)
-    total_duration = librosa.get_duration(y=y, sr=sr)
+    energy, energy_tpf, sr = context.get_energy_profile()
+    onset_env, beat_times, beat_tpf, _ = context.get_beat_profile()
+    rep_profile, rep_tpf, _ = context.get_repetition_profile()
+    total_duration = context.get_duration()
 
     if max_end is None:
         max_end = total_duration
@@ -65,6 +70,9 @@ def compute_scores(audio_path: str,
         from analyzer.heatmap import get_peak_segment
         heatmap_available = True
         # Pre-compute heatmap score for every possible 1-second position
+        window_candidates = cfg.get("sliding_window", {}).get(
+            "candidates", [20, 25, 30, 35, 40]
+        )
         for w in window_candidates:
             best = get_peak_segment(heatmap_markers, duration=w,
                                     min_start=min_start, max_end=max_end)
@@ -78,23 +86,14 @@ def compute_scores(audio_path: str,
         heatmap_available = False
 
     weights = get_weights(heatmap_available)
+    window_candidates = cfg.get("sliding_window", {}).get(
+        "candidates", [20, 25, 30, 35, 40]
+    )
 
-    # 2. Energy scoring
-    from analyzer.energy import compute_energy_profile
-    energy_profile, energy_tpf, _ = compute_energy_profile(audio_path)
-    energy_total_frames = len(energy_profile)
-
-    # 3. Repetition scoring
-    from analyzer.repetition import compute_repetition_profile
-    rep_profile, rep_tpf, _ = compute_repetition_profile(audio_path)
-
-    # 4. Beat scoring
-    from analyzer.beat import compute_beat_profile
-    onset_env, beat_times, beat_tpf, _ = compute_beat_profile(audio_path)
-
-    # 5. Novelty (spectral novelty) - use onset strength as proxy for novelty
-    # Novelty measures how "interesting/unexpected" a segment sounds
-    novelty_profile = onset_env.copy()  # reuse onset envelope
+    # Pre-compute signal arrays once for O(1) window scoring
+    energy_max = float(energy.max()) if len(energy) > 0 else 0
+    onset_max = float(onset_env.max()) if len(onset_env) > 0 else 0
+    rep_max = float(rep_profile.max()) if len(rep_profile) > 0 else 0
 
     # ---- Score all candidate windows ----
 
@@ -131,13 +130,12 @@ def compute_scores(audio_path: str,
                 continue
             seen_windows.add(window_key)
 
-            # Compute individual scores
+            # Compute individual scores using pre-computed arrays
             sig = _compute_segment_scores(
                 seg_start, seg_end,
-                energy_profile, energy_tpf, energy_total_frames,
+                energy, energy_tpf, len(energy),
                 rep_profile, rep_tpf,
                 onset_env, beat_times, beat_tpf,
-                novelty_profile,
                 heatmap_markers,
                 total_duration,
             )
@@ -200,13 +198,13 @@ def compute_scores(audio_path: str,
 
 
 def _compute_segment_scores(start, end,
-                            energy_profile, energy_tpf, energy_total_frames,
+                            energy, energy_tpf, energy_total_frames,
                             rep_profile, rep_tpf,
                             onset_env, beat_times, beat_tpf,
-                            novelty_profile,
                             heatmap_markers, total_duration) -> dict:
     """
     Compute individual analyzer scores (0-100) for a single segment.
+    All arrays come from SignalContext — no redundant loads.
     """
     sig = {"replay": 0.0, "repetition": 0.0, "energy": 0.0,
            "beat": 0.0, "novelty": 0.0}
@@ -224,10 +222,9 @@ def _compute_segment_scores(start, end,
     s_frame = max(0, min(s_frame, energy_total_frames - 1))
     e_frame = max(s_frame + 1, min(e_frame, energy_total_frames))
     if e_frame > s_frame:
-        seg_energy = float(np.mean(energy_profile[s_frame:e_frame]))
-        # Normalize against global max
-        global_max = float(energy_profile.max())
-        if global_max > 0:
+        seg_energy = float(np.mean(energy[s_frame:e_frame]))
+        if energy_total_frames > 0:
+            global_max = float(energy.max()) if energy.max() > 0 else 1.0
             sig["energy"] = min(seg_energy / global_max * 100.0, 100.0)
         else:
             sig["energy"] = 50.0
@@ -254,11 +251,11 @@ def _compute_segment_scores(start, end,
         density_score = min(density * 20, 30.0)
         sig["beat"] = min(seg_beat * 0.3 + density_score, 100.0)
 
-    # ---- Novelty score ----
+    # ---- Novelty score (std of onset envelope) ----
     s_frame_n = int(start / beat_tpf)
     e_frame_n = int(end / beat_tpf)
-    s_frame_n = max(0, min(s_frame_n, len(novelty_profile) - 1))
-    e_frame_n = max(s_frame_n + 1, min(e_frame_n, len(novelty_profile)))
+    s_frame_n = max(0, min(s_frame_n, len(onset_env) - 1))
+    e_frame_n = max(s_frame_n + 1, min(e_frame_n, len(onset_env)))
     if e_frame_n > s_frame_n:
         seg_novelty = float(np.std(onset_env[s_frame_n:e_frame_n])) * 200.0
         sig["novelty"] = min(seg_novelty, 100.0)
@@ -267,15 +264,10 @@ def _compute_segment_scores(start, end,
 
 
 def _generate_labels(signals: dict, weights: dict, heatmap_available: bool) -> list[str]:
-    """
-    Generate human-readable labels explaining why a segment scored well.
-
-    Returns a list of label strings like "Most Replayed", "High Energy", etc.
-    """
+    """Generate human-readable labels explaining why a segment scored well."""
     labels = []
     sorted_sigs = sorted(signals.items(), key=lambda x: x[1], reverse=True)
 
-    # Find the strongest signal(s)
     for name, score in sorted_sigs[:3]:
         if score >= 70:
             if name == "replay":
@@ -290,27 +282,15 @@ def _generate_labels(signals: dict, weights: dict, heatmap_available: bool) -> l
                 labels.append("Dynamic")
 
     if not labels:
-        # Fallback: weakest signal
         labels.append("Balanced")
 
     return labels
 
 
 def find_nearest_beat(beat_times: list[float], target: float, max_drift: float = 1.0) -> float:
-    """
-    Snap a time to the nearest beat onset (for smart start).
-
-    Args:
-        beat_times: List of beat times in seconds
-        target: Target time in seconds
-        max_drift: Maximum allowed snap distance in seconds
-
-    Returns:
-        The nearest beat time within max_drift, or target if none found.
-    """
+    """Snap a time to the nearest beat onset (for smart start)."""
     if not beat_times:
         return target
-
     nearest = min(beat_times, key=lambda b: abs(b - target))
     if abs(nearest - target) <= max_drift:
         return nearest
@@ -318,28 +298,12 @@ def find_nearest_beat(beat_times: list[float], target: float, max_drift: float =
 
 
 def find_phrase_end(beat_times: list[float], target: float,
-                    phrase_length: int = 8, max_drift: float = 3.0) -> float:
-    """
-    Snap an end time to the nearest phrase boundary.
-
-    Phrases often land on beat positions that are multiples of a phrase length
-    (e.g., every 4 or 8 beats).
-
-    Args:
-        beat_times: List of beat times in seconds
-        target: Target end time in seconds
-        phrase_length: Typical phrase length in beats (default 8)
-        max_drift: Maximum allowed snap distance in seconds
-
-    Returns:
-        The nearest phrase boundary, or target if none found.
-    """
+                     phrase_length: int = 8, max_drift: float = 3.0) -> float:
+    """Snap an end time to the nearest phrase boundary."""
     if not beat_times or len(beat_times) < phrase_length:
         return target
 
-    # Phrase boundaries are every `phrase_length` beats
     boundaries = [beat_times[i] for i in range(phrase_length - 1, len(beat_times), phrase_length)]
-
     if not boundaries:
         return target
 

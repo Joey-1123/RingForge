@@ -326,8 +326,8 @@ def generate(input, mode, profile, start, end, duration, force):
 
     elif mode == "notification":
         # notification mode: find short punchy segment (3-8s)
+        from analyzer._context import SignalContext
         from analyzer.scorer import compute_scores, find_nearest_beat, find_phrase_end
-        from analyzer.beat import get_beat_times
 
         heatmap_markers = None
         if not is_local:
@@ -337,11 +337,13 @@ def generate(input, mode, profile, start, end, duration, force):
             heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
             total_dur = meta.get("duration") if meta else None
 
+        context = SignalContext(audio_path)
         candidates = compute_scores(
             audio_path,
             duration=duration or 5,
             heatmap_markers=heatmap_markers,
             max_end=total_dur,
+            context=context,
         )
         if not candidates:
             click.echo("Could not identify a good notification segment.", err=True)
@@ -349,7 +351,7 @@ def generate(input, mode, profile, start, end, duration, force):
 
         best = candidates[0]
         s, e = best["start"], best["end"]
-        beat_times = get_beat_times(audio_path)
+        beat_times = context.beat_times
         smart_s = find_nearest_beat(beat_times, s)
         smart_e = find_phrase_end(beat_times, e)
 
@@ -376,8 +378,8 @@ def generate(input, mode, profile, start, end, duration, force):
         click.echo(f"Exported notification: {output_path}")
 
     else:  # auto mode - run full scoring pipeline
+        from analyzer._context import SignalContext
         from analyzer.scorer import compute_scores
-        from analyzer.beat import get_beat_times
 
         heatmap_markers = None
         if not is_local:
@@ -387,11 +389,14 @@ def generate(input, mode, profile, start, end, duration, force):
             heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
             total_dur = meta.get("duration") if meta else None
 
+        # Load audio once into shared context
+        context = SignalContext(audio_path)
+
         # Resolve duration
         if duration is None:
             duration = cfg.get("default_duration", 30)
 
-        # Run the unified scoring engine
+        # Run the unified scoring pipeline
         log = get_logger()
         log.info("Running full scoring pipeline for %s", input)
         candidates = compute_scores(
@@ -399,6 +404,7 @@ def generate(input, mode, profile, start, end, duration, force):
             duration=duration,
             heatmap_markers=heatmap_markers,
             max_end=total_dur,
+            context=context,
         )
 
         if not candidates:
@@ -424,8 +430,8 @@ def generate(input, mode, profile, start, end, duration, force):
         best = candidates[0]
         s, e = best["start"], best["end"]
 
-        # Smart start/end
-        beat_times = get_beat_times(audio_path)
+        # Smart start/end — beat_times already in context
+        beat_times = context.beat_times
         from analyzer.scorer import find_nearest_beat, find_phrase_end
         smart_s = find_nearest_beat(beat_times, s)
         smart_e = find_phrase_end(beat_times, e)
@@ -637,19 +643,21 @@ def batch(input_file, mode, profile, duration, limit):
                 continue
 
             from analyzer.heatmap import fetch_heatmap
+            from analyzer._context import SignalContext
             from analyzer.scorer import compute_scores, find_nearest_beat, find_phrase_end
-            from analyzer.beat import get_beat_times
 
             meta = ytdl.get_metadata(url)
             real_vid = meta.get("video_id") if meta else None
             heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
             total_dur = meta.get("duration") if meta else None
 
+            context = SignalContext(audio_path)
             candidates = compute_scores(
                 audio_path,
                 duration=duration or cfg.get("default_duration", 30),
                 heatmap_markers=heatmap_markers,
                 max_end=total_dur,
+                context=context,
             )
 
             if not candidates:
@@ -659,7 +667,7 @@ def batch(input_file, mode, profile, duration, limit):
 
             best = candidates[0]
             s, e = best["start"], best["end"]
-            beat_times = get_beat_times(audio_path)
+            beat_times = context.beat_times
             smart_s = find_nearest_beat(beat_times, s)
             smart_e = find_phrase_end(beat_times, e)
 
