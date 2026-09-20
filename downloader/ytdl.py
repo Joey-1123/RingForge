@@ -60,6 +60,8 @@ def download(url: str, force: bool = False) -> str:
         "--print", "after_move:%(filepath)j",  # prints the actual output path as JSON string
         "--no-playlist",
         "--quiet",
+        "--no-update",                    # suppress outdated version warning
+        "--js-runtimes", "node",          # use Node.js (available on most systems) instead of deno
         url,
     ]
 
@@ -94,6 +96,8 @@ def download(url: str, force: bool = False) -> str:
         "--dump-json",
         "--no-playlist",
         "--quiet",
+        "--no-update",
+        "--js-runtimes", "node",
         url,
     ]
     info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=60)
@@ -126,6 +130,8 @@ def get_metadata(url: str) -> dict | None:
         "--dump-json",
         "--no-playlist",
         "--quiet",
+        "--no-update",
+        "--js-runtimes", "node",
         url,
     ]
     result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=60)
