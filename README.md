@@ -27,8 +27,7 @@ Audio Input -> Analyze -> Pick top 5 -> Export
   editing, and batch processing
 - **Top 5 ranked candidates** -- shows the best segments with labels explaining
   why each was chosen
-- **AI scoring engine** -- energy, repetition, beat, and novelty analysis via
-  librosa
+- **Signal scoring engine** -- energy, repetition, beat, and novelty analysis via librosa
 - **Optional YouTube import** -- downloads audio and scrapes "Most Replayed"
   heatmap when available
 - **Smart start/end** -- snaps cuts to the nearest beat onset for clean,
@@ -281,4 +280,4 @@ RingForge/
 ## License
 
 All Rights Reserved. See `LICENSE` file.
-Copyright (c) 2026 RingForce and Shubham Panchal (Joey-1123).
+Copyright (c) 2026 RingForge and Shubham Panchal (Joey-1123).

@@ -6,6 +6,8 @@ Loads audio once via librosa.load() and pre-computes all analysis profiles
 instead of loading the audio file independently.
 """
 
+import os
+
 import numpy as np
 import librosa
 
@@ -34,12 +36,30 @@ class SignalContext:
     """
 
     def __init__(self, audio_path: str, hop_length: int = DEFAULT_HOP_LENGTH):
+        """
+        Load audio once into a shared signal context.
+
+        Raises:
+            FileNotFoundError: If audio_path does not exist.
+            RuntimeError: If librosa cannot load the audio.
+        """
         log.debug("Loading audio once: %s", audio_path)
         self.audio_path = audio_path
         self.hop_length = hop_length
 
+        if not os.path.isfile(audio_path):
+            raise FileNotFoundError(
+                f"Audio file not found: {audio_path}. "
+                "Check the path and try again."
+            )
+
         # Single load — shared across all analyzers
-        self.y, self.sr = librosa.load(audio_path, sr=None, mono=True)
+        try:
+            self.y, self.sr = librosa.load(audio_path, sr=None, mono=True)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Failed to load audio file '{audio_path}': {exc}"
+            ) from exc
         self.time_per_frame = hop_length / self.sr
 
         # Pre-compute energy profile

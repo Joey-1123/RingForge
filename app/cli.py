@@ -24,6 +24,11 @@ from downloader import ytdl
 from audio.trim import trim, trim_with_smart_start
 from audio.effects import apply_all
 
+try:
+    import numpy as np
+except ImportError:
+    np = None
+
 
 # ---------------------------------------------------------------------------
 # Shared options
@@ -626,6 +631,8 @@ def _process_batch_url(args: tuple) -> tuple[int, str, bool, str]:
 
         meta = ytdl.get_metadata(url)
         real_vid = meta.get("video_id") if meta else None
+        if real_vid is None:
+            real_vid = os.path.splitext(os.path.basename(url))[0]
         heatmap_markers = fetch_heatmap(real_vid) if real_vid else None
         total_dur = meta.get("duration") if meta else None
 
