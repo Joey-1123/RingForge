@@ -94,6 +94,7 @@ FONT_SIZE_LARGE = 14
 FONT_SIZE_XL = 18
 FONT_SIZE_2XL = 24
 FONT_WEIGHT_NORMAL = 50
+FONT_WEIGHT_MEDIUM = 60
 FONT_WEIGHT_BOLD = 80
 
 # ═══════════════════════════════════════════════════════════════
@@ -181,22 +182,233 @@ def get_reduced_motion() -> bool:
 
 def token_stylesheet() -> str:
     return f"""
+/* ═══════════════════════════════════════════════════════
+   RingForge Design Tokens — QSS Stylesheet
+   Phase 2: Visual Polish with transitions & states
+   ═══════════════════════════════════════════════════════ */
+
+/* --- Base --- */
 QMainWindow {{ background: {BG_PRIMARY}; }}
 QWidget {{ background: {BG_PRIMARY}; }}
-QGroupBox {{ background: {BG_SECONDARY}; border: 1px solid {BORDER_DEFAULT}; border-radius: {RADIUS_LG}px; padding: {SPACING_LG}px; }}
+QGroupBox {{
+    background: {BG_SECONDARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_LG}px;
+    padding: {SPACING_LG}px;
+}}
 QLabel {{ color: {TEXT_PRIMARY}; }}
-QPushButton {{ background: {BG_SURFACE}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_DEFAULT}; border-radius: {RADIUS_MD}px; padding: {SPACING_SM}px {SPACING_MD}px; min-height: {TARGET_MIN_SIZE}px; }}
-QPushButton:hover {{ background: {BG_SURFACE_HOVER}; border-color: {BRAND_PRIMARY}; }}
-QPushButton:pressed {{ background: {BG_SURFACE_PRESSED}; }}
-QPushButton:focus {{ border: {FOCUS_RING_WIDTH}px solid {FOCUS_RING}; }}
-QPushButton:disabled {{ color: {TEXT_MUTED}; }}
-QLineEdit {{ background: {BG_SURFACE}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_DEFAULT}; border-radius: {RADIUS_SM}px; }}
-QLineEdit:focus {{ border-color: {FOCUS_RING}; }}
-QComboBox {{ background: {BG_SURFACE}; color: {TEXT_PRIMARY}; border: 1px solid {BORDER_DEFAULT}; border-radius: {RADIUS_SM}px; }}
+QStatusBar {{
+    background: {BG_SECONDARY};
+    color: {TEXT_SECONDARY};
+    border-top: 1px solid {BORDER_DEFAULT};
+}}
+
+/* --- Buttons — All interactive states --- */
+QPushButton {{
+    background: {BG_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_MD}px;
+    padding: {SPACING_SM}px {SPACING_MD}px;
+    min-height: {TARGET_MIN_SIZE}px;
+    font-size: {FONT_SIZE_BASE}pt;
+    font-weight: {FONT_WEIGHT_MEDIUM};
+    /* Smooth transition for all state changes */
+    transition: background 150ms ease-out, border-color 150ms ease-out, color 150ms ease-out;
+}}
+QPushButton:hover {{
+    background: {BG_SURFACE_HOVER};
+    border-color: {BRAND_PRIMARY};
+    color: {TEXT_PRIMARY};
+}}
+QPushButton:pressed {{
+    background: {BG_SURFACE_PRESSED};
+    border-color: {BRAND_PRIMARY};
+    color: {TEXT_INVERSE};
+}}
+QPushButton:focus {{
+    border: {FOCUS_RING_WIDTH}px solid {FOCUS_RING};
+    outline: none;
+}}
+QPushButton:focus:hover {{
+    border: {FOCUS_RING_WIDTH}px solid {FOCUS_RING};
+    background: {BG_SURFACE_HOVER};
+}}
+QPushButton:disabled {{
+    color: {TEXT_MUTED};
+    background: {BG_SECONDARY};
+    border-color: {BORDER_DEFAULT};
+}}
+
+/* --- Inputs --- */
+QLineEdit {{
+    background: {BG_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACING_SM}px;
+    font-size: {FONT_SIZE_BASE}pt;
+    selection-background-color: {BRAND_PRIMARY};
+    selection-color: {TEXT_INVERSE};
+    transition: border-color 150ms ease-out;
+}}
+QLineEdit:focus {{
+    border-color: {FOCUS_RING};
+}}
+QLineEdit:disabled {{
+    color: {TEXT_MUTED};
+    background: {BG_SECONDARY};
+}}
+QLineEdit::placeholder {{
+    color: {TEXT_MUTED};
+}}
+
+/* --- ComboBox --- */
+QComboBox {{
+    background: {BG_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACING_SM}px {SPACING_MD}px;
+    font-size: {FONT_SIZE_BASE}pt;
+    min-height: 32px;
+}}
 QComboBox:focus {{ border-color: {FOCUS_RING}; }}
-QProgressBar::chunk {{ background: {BRAND_PRIMARY}; }}
-QStatusBar {{ background: {BG_SECONDARY}; color: {TEXT_SECONDARY}; }}
-QTabBar::tab:selected {{ border-bottom: 2px solid {BRAND_PRIMARY}; }}
-QCheckBox {{ color: {TEXT_PRIMARY}; }}
+QComboBox::drop-down {{ border: none; }}
+QComboBox QAbstractItemView {{
+    background: {BG_SECONDARY};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    selection-background-color: {BRAND_PRIMARY};
+}}
+
+/* --- SpinBox / DoubleSpinBox --- */
+QDoubleSpinBox, QSpinBox {{
+    background: {BG_SURFACE};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_SM}px;
+    padding: {SPACING_SM}px;
+    font-size: {FONT_SIZE_BASE}pt;
+}}
+QDoubleSpinBox:focus, QSpinBox:focus {{ border-color: {FOCUS_RING}; }}
+
+/* --- Slider --- */
+QSlider::groove:horizontal {{
+    background: {BG_SURFACE};
+    height: 6px;
+    border-radius: 3px;
+}}
+QSlider::handle:horizontal {{
+    background: {BRAND_PRIMARY};
+    border: 2px solid {TEXT_INVERSE};
+    width: 16px; height: 16px;
+    border-radius: 8px;
+    margin: -5px 0;
+}}
+QSlider::handle:horizontal:hover {{
+    background: {BRAND_ACCENT};
+}}
+
+/* --- Progress Bar --- */
+QProgressBar {{
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_SM}px;
+    text-align: center;
+    color: {TEXT_PRIMARY};
+    font-size: {FONT_SIZE_BASE}pt;
+}}
+QProgressBar::chunk {{
+    background: {BRAND_PRIMARY};
+    border-radius: {RADIUS_SM}px;
+}}
+
+/* --- Tabs --- */
+QTabWidget::pane {{
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_LG}px;
+}}
+QTabBar::tab {{
+    background: {BG_SURFACE};
+    color: {TEXT_SECONDARY};
+    padding: {SPACING_SM}px {SPACING_MD}px;
+    border-radius: {RADIUS_SM}px;
+    font-size: {FONT_SIZE_BASE}pt;
+    margin-right: 2px;
+}}
+QTabBar::tab:selected {{
+    background: {BG_SECONDARY};
+    color: {TEXT_PRIMARY};
+    border-bottom: 2px solid {BRAND_PRIMARY};
+}}
+QTabBar::tab:hover {{ color: {TEXT_PRIMARY}; }}
+
+/* --- CheckBox --- */
+QCheckBox {{
+    color: {TEXT_PRIMARY};
+    spacing: {SPACING_SM}px;
+    font-size: {FONT_SIZE_BASE}pt;
+}}
+QCheckBox::indicator {{
+    width: 18px; height: 18px;
+    border-radius: {RADIUS_SM}px;
+    border: 2px solid {BORDER_DEFAULT};
+    background: {BG_SURFACE};
+}}
+QCheckBox::indicator:checked {{
+    background: {BRAND_PRIMARY};
+    border-color: {BRAND_PRIMARY};
+}}
+QCheckBox::indicator:hover {{
+    border-color: {BRAND_PRIMARY};
+}}
+
+/* --- Frame / Separator --- */
 QFrame {{ border: 1px solid {BORDER_DEFAULT}; }}
+
+/* --- List Widget --- */
+QListWidget {{
+    background: {BG_PRIMARY};
+    color: {TEXT_PRIMARY};
+    border: 1px solid {BORDER_DEFAULT};
+    border-radius: {RADIUS_SM}px;
+    outline: none;
+}}
+QListWidget::item {{
+    padding: {SPACING_SM}px {SPACING_MD}px;
+    border-bottom: 1px solid {BORDER_DEFAULT};
+}}
+QListWidget::item:selected {{
+    background: {BG_SURFACE_HOVER};
+    border-left: 3px solid {BRAND_PRIMARY};
+}}
+QListWidget::item:hover {{
+    background: {BG_SURFACE};
+}}
+
+/* --- Scrollbar --- */
+QScrollBar:vertical {{
+    background: {BG_SURFACE};
+    width: 10px;
+    border-radius: 5px;
+}}
+QScrollBar::handle:vertical {{
+    background: {BG_SURFACE_HOVER};
+    border-radius: 5px;
+    min-height: 30px;
+}}
+QScrollBar::handle:vertical:hover {{
+    background: {BRAND_PRIMARY};
+}}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+    height: 0px;
+}}
+
+/* --- Dialog / Modal --- */
+QDialog {{
+    background: {BG_PRIMARY};
+}}
+QDialog QPushButton {{
+    min-width: 80px;
+}}
 """
