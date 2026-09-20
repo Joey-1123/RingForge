@@ -178,33 +178,36 @@ def get_peak_segment(markers: list[dict],
     if max_end is None:
         max_end = markers[-1]["time"]
 
-    # Compute the total intensity from markers within each candidate window
-    # Walk through each marker as a potential window start
+    # Sort markers by time
+    sorted_markers = sorted(markers, key=lambda m: m["time"])
+    n = len(sorted_markers)
+
+    # Sliding window O(n): find the window of markers within
+    # a `duration` span with highest average intensity.
     best = None
     best_score = -1.0
+    window_sum = 0.0
+    left = 0
 
-    for i, start_marker in enumerate(markers):
-        window_start = start_marker["time"]
+    for right in range(n):
+        window_sum += sorted_markers[right]["intensity"]
 
-        # Skip if outside allowed range
+        # Shrink window from left while it exceeds duration
+        while sorted_markers[right]["time"] - sorted_markers[left]["time"] > duration:
+            window_sum -= sorted_markers[left]["intensity"]
+            left += 1
+
+        window_start = sorted_markers[left]["time"]
         if window_start < min_start:
             continue
         if window_start + duration > max_end:
             break
 
-        # Sum intensities of markers within this window
-        total_intensity = 0.0
-        count = 0
-        for m in markers[i:]:
-            if m["time"] > window_start + duration:
-                break
-            total_intensity += m["intensity"]
-            count += 1
-
+        count = right - left + 1
         if count == 0:
             continue
 
-        avg = total_intensity / count
+        avg = window_sum / count
         if avg > best_score:
             best_score = avg
             best = {
