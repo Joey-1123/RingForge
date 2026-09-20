@@ -57,11 +57,11 @@ def download(url: str, force: bool = False) -> str:
         "--audio-format", "wav",
         "--audio-quality", "0",          # best quality
         "--output", temp_template,
-        "--print", "after_move:%(filepath)j",  # prints the actual output path as JSON string
+        "--print", "after_move:%(filepath)j",  # prints filepath to stdout
         "--no-playlist",
         "--quiet",
-        "--no-update",                    # suppress outdated version warning
-        "--js-runtimes", "node",          # use Node.js (available on most systems) instead of deno
+        "--no-update",                   # suppress outdated version warning
+        "--js-runtimes", "node",         # use Node.js instead of deno
         url,
     ]
 
@@ -76,55 +76,38 @@ def download(url: str, force: bool = False) -> str:
         log.error("yt-dlp failed: %s", result.stderr)
         raise RuntimeError(f"Download failed: {result.stderr}")
 
-    # Step 2: Locate the downloaded file
-    # yt-dlp --print after_move prints the final filepath as JSON
-    # Parse it from stdout (last line usually)
-    lines = [l.strip() for l in result.stdout.splitlines() if l.strip()]
+    # Parse --print after_move output (first line of stdout)
+    lines = [l.strip().strip('"').strip("'") for l in result.stdout.splitlines() if l.strip()]
     if not lines:
         raise RuntimeError("yt-dlp did not report an output file path")
+    dl_path = lines[0]
 
-    import json as _json
-    dl_path = _json.loads(lines[-1])
-
-    # Step 3: Ensure it is our canonical name
+    # Ensure canonical name
     if dl_path != output_path:
         os.replace(dl_path, output_path)
 
-    # Step 4: Fetch metadata (separate yt-dlp call for JSON info)
-    info_cmd = [
-        sys.executable, "-m", "yt_dlp",
-        "--dump-json",
-        "--no-playlist",
-        "--quiet",
-        "--no-update",
-        "--js-runtimes", "node",
-        url,
-    ]
-    info_result = subprocess.run(info_cmd, capture_output=True, text=True, timeout=60)
-    if info_result.returncode == 0 and info_result.stdout.strip():
-        metadata = json.loads(info_result.stdout.strip().splitlines()[0])
-        save_metadata(video_id, {
-            "title": metadata.get("title"),
-            "duration": metadata.get("duration"),
-            "channel": metadata.get("channel"),
-            "uploader": metadata.get("uploader"),
-            "thumbnail": metadata.get("thumbnail"),
-            "webpage_url": metadata.get("webpage_url"),
-            "video_id": metadata.get("id"),
-        })
+    # Fetch metadata — get_metadata() checks cache first, so this
+    # will only spawn a yt-dlp subprocess if not already cached.
+    # Called here so that the subsequent get_metadata() call in
+    # cli.py returns cached data without another subprocess.
+    get_metadata(url)
 
     log.info("Downloaded to %s", output_path)
     return output_path
 
 
 def get_metadata(url: str) -> dict | None:
-    """Return metadata dict for a URL without downloading audio."""
+    """Return metadata dict for a URL without downloading audio.
+
+    Checks cache first — if download() was called before this,
+    returns cached data without spawning another yt-dlp subprocess.
+    """
     video_id = video_id_from_url(url)
     cached = load_metadata(video_id)
     if cached:
         return cached
 
-    # We can also fetch metadata directly via --dump-json
+    # Only fetch from yt-dlp if not already cached
     info_cmd = [
         sys.executable, "-m", "yt_dlp",
         "--dump-json",
