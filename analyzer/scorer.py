@@ -89,8 +89,14 @@ def compute_scores(audio_path: str,
     window_candidates = cfg.get("sliding_window", {}).get(
         "candidates", [20, 25, 30, 35, 40]
     )
+    search_radius = cfg.get("sliding_window", {}).get("search_radius", 10)
 
-    # Pre-compute signal arrays once for O(1) window scoring
+    # Pre-compute cumulative sum arrays for O(1) window scoring
+    energy_cumsum = np.concatenate([[0], np.cumsum(energy)])
+    onset_cumsum = np.concatenate([[0], np.cumsum(onset_env)])
+    rep_cumsum = np.concatenate([[0], np.cumsum(rep_profile)])
+    onset_cumsq = np.concatenate([[0], np.cumsum(onset_env ** 2)])
+
     energy_max = float(energy.max()) if len(energy) > 0 else 0
     onset_max = float(onset_env.max()) if len(onset_env) > 0 else 0
     rep_max = float(rep_profile.max()) if len(rep_profile) > 0 else 0
@@ -130,12 +136,12 @@ def compute_scores(audio_path: str,
                 continue
             seen_windows.add(window_key)
 
-            # Compute individual scores using pre-computed arrays
+            # Compute individual scores using cumulative arrays (O(1) per window)
             sig = _compute_segment_scores(
                 seg_start, seg_end,
-                energy, energy_tpf, len(energy),
-                rep_profile, rep_tpf,
-                onset_env, beat_times, beat_tpf,
+                energy_cumsum, energy_tpf, len(energy), energy_max,
+                rep_cumsum, rep_tpf,
+                onset_cumsum, onset_cumsq, beat_times, beat_tpf,
                 heatmap_markers,
                 total_duration,
             )
@@ -198,13 +204,13 @@ def compute_scores(audio_path: str,
 
 
 def _compute_segment_scores(start, end,
-                            energy, energy_tpf, energy_total_frames,
-                            rep_profile, rep_tpf,
-                            onset_env, beat_times, beat_tpf,
+                            energy_cumsum, energy_tpf, energy_total_frames, energy_max,
+                            rep_cumsum, rep_tpf,
+                            onset_cumsum, onset_cumsq, beat_times, beat_tpf,
                             heatmap_markers, total_duration) -> dict:
     """
     Compute individual analyzer scores (0-100) for a single segment.
-    All arrays come from SignalContext — no redundant loads.
+    Uses cumulative sum arrays for O(1) range queries.
     """
     sig = {"replay": 0.0, "repetition": 0.0, "energy": 0.0,
            "beat": 0.0, "novelty": 0.0}
@@ -216,48 +222,51 @@ def _compute_segment_scores(start, end,
             avg_intensity = np.mean([m["intensity"] for m in markers_in_seg])
             sig["replay"] = avg_intensity * 100.0
 
-    # ---- Energy score ----
+    # ---- Energy score (O(1) via cumulative sums) ----
     s_frame = int(start / energy_tpf)
     e_frame = int(end / energy_tpf)
     s_frame = max(0, min(s_frame, energy_total_frames - 1))
     e_frame = max(s_frame + 1, min(e_frame, energy_total_frames))
     if e_frame > s_frame:
-        seg_energy = float(np.mean(energy[s_frame:e_frame]))
-        if energy_total_frames > 0:
-            global_max = float(energy.max()) if energy.max() > 0 else 1.0
-            sig["energy"] = min(seg_energy / global_max * 100.0, 100.0)
+        seg_energy = (energy_cumsum[e_frame] - energy_cumsum[s_frame]) / (e_frame - s_frame)
+        if energy_max > 0:
+            sig["energy"] = min(seg_energy / energy_max * 100.0, 100.0)
         else:
             sig["energy"] = 50.0
 
-    # ---- Repetition score ----
+    # ---- Repetition score (O(1) via cumulative sums) ----
     s_frame_r = int(start / rep_tpf)
     e_frame_r = int(end / rep_tpf)
-    s_frame_r = max(0, min(s_frame_r, len(rep_profile) - 1))
-    e_frame_r = max(s_frame_r + 1, min(e_frame_r, len(rep_profile)))
+    s_frame_r = max(0, min(s_frame_r, len(rep_cumsum) - 2))
+    e_frame_r = max(s_frame_r + 1, min(e_frame_r, len(rep_cumsum) - 1))
     if e_frame_r > s_frame_r:
-        seg_rep = float(np.mean(rep_profile[s_frame_r:e_frame_r]))
+        seg_rep = (rep_cumsum[e_frame_r] - rep_cumsum[s_frame_r]) / (e_frame_r - s_frame_r)
         sig["repetition"] = min(seg_rep * 100.0, 100.0)
 
-    # ---- Beat score ----
+    # ---- Beat score (O(1) via cumulative sums) ----
     s_frame_b = int(start / beat_tpf)
     e_frame_b = int(end / beat_tpf)
-    s_frame_b = max(0, min(s_frame_b, len(onset_env) - 1))
-    e_frame_b = max(s_frame_b + 1, min(e_frame_b, len(onset_env)))
+    s_frame_b = max(0, min(s_frame_b, len(onset_cumsum) - 2))
+    e_frame_b = max(s_frame_b + 1, min(e_frame_b, len(onset_cumsum) - 1))
     if e_frame_b > s_frame_b:
-        seg_beat = float(np.mean(onset_env[s_frame_b:e_frame_b])) * 100.0
+        seg_beat = (onset_cumsum[e_frame_b] - onset_cumsum[s_frame_b]) / (e_frame_b - s_frame_b)
         # Beat density bonus
         beat_count = sum(1 for bt in beat_times if start <= bt <= end)
         density = beat_count / (end - start)
         density_score = min(density * 20, 30.0)
         sig["beat"] = min(seg_beat * 0.3 + density_score, 100.0)
 
-    # ---- Novelty score (std of onset envelope) ----
+    # ---- Novelty score (std of onset envelope via cumulative sums) ----
     s_frame_n = int(start / beat_tpf)
     e_frame_n = int(end / beat_tpf)
-    s_frame_n = max(0, min(s_frame_n, len(onset_env) - 1))
-    e_frame_n = max(s_frame_n + 1, min(e_frame_n, len(onset_env)))
-    if e_frame_n > s_frame_n:
-        seg_novelty = float(np.std(onset_env[s_frame_n:e_frame_n])) * 200.0
+    s_frame_n = max(0, min(s_frame_n, len(onset_cumsum) - 2))
+    e_frame_n = max(s_frame_n + 1, min(e_frame_n, len(onset_cumsum) - 1))
+    if e_frame_n > s_frame_b:
+        n = e_frame_n - s_frame_n
+        seg_mean = (onset_cumsum[e_frame_n] - onset_cumsum[s_frame_n]) / n
+        seg_mean_sq = (onset_cumsq[e_frame_n] - onset_cumsq[s_frame_n]) / n
+        variance = max(seg_mean_sq - seg_mean ** 2, 0)
+        seg_novelty = float(np.sqrt(variance)) * 200.0
         sig["novelty"] = min(seg_novelty, 100.0)
 
     return sig
