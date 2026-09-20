@@ -91,3 +91,7 @@ desktop.ini
 .pre-commit-config.yaml
 memory.md
 logs/
+
+# Analysis
+graphify-out/
+tasks/
